@@ -139,6 +139,7 @@ export function Sidebar() {
         { icon: KeyRound, label: "Access Control", path: "/access-control" },
         { icon: Users, label: "Group Management", path: "/groups" },
         { icon: Settings2, label: "System Settings", path: "/settings" },
+        { icon: CheckCircle2, label: "Approved Tickets", path: "/approved-tickets" },
       ]
     }
   ];
