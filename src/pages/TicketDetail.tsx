@@ -114,8 +114,8 @@ export function TicketDetail() {
           updates.onHoldStart = null;
           
           // Ensure resolution fields are present if being resolved
-          if (!editedTicket.resolutionCode) {
-            alert("Please select a Resolution Code before resolving.");
+          if (!editedTicket.resolutionCode || !editedTicket.resolutionNotes) {
+            alert("Please go to the 'Resolution Information' tab and enter both a Resolution Code and Resolution Notes before resolving.");
             setIsUpdating(false);
             return;
           }
@@ -181,8 +181,10 @@ export function TicketDetail() {
           colors: ["#22c55e", "#fbbf24", "#3b82f6"]
         });
         alert(`Great job! Ticket resolved. You earned ${pointsAwarded} points! 🏆`);
+        setTimeout(() => navigate("/tickets"), 1500);
       } else {
         alert("Incident updated successfully");
+        if (isResolved) navigate("/tickets");
       }
     } catch (error: any) {
       console.error("Error updating ticket:", error);
