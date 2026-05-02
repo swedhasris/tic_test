@@ -1,11 +1,44 @@
 import React, { useState } from "react";
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
-import { auth, db } from "../lib/firebase";
+import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { Link, useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { ROLE_LABELS, ROLE_COLORS, type Role } from "../lib/roles";
+import { ROLE_LABELS, type Role } from "../lib/roles";
 import { Crown, Shield, UserCog, Eye } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+// Local Button component
+const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default' | 'outline' | 'ghost' }>(
+  ({ className, variant = 'default', ...props }, ref) => {
+    const variants = {
+      default: "bg-sn-green text-sn-dark hover:bg-sn-green/90 shadow-md",
+      outline: "border-2 border-border bg-transparent hover:bg-muted/50 text-foreground",
+      ghost: "bg-transparent hover:bg-muted/50 text-muted-foreground"
+    };
+    return (
+      <button
+        ref={ref}
+        className={cn(
+          "px-4 py-2 rounded-lg font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2",
+          variants[variant],
+          className
+        )}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = "Button";
+
+// Same hash function as Register
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return 'h_' + Math.abs(hash).toString(36) + '_' + str.length;
+}
 
 const DEMO_ROLES: { role: Role; label: string; description: string; icon: any; color: string }[] = [
   { role: "user",              label: "User",              description: "End user — raise & track tickets",        icon: UserCog, color: "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200" },
@@ -36,7 +69,6 @@ export function Login() {
 
       localStorage.setItem("demo_user", JSON.stringify(demoProfile));
 
-      // Write to Firestore so data is shared across sessions
       try {
         await setDoc(doc(db, "users", uid), { ...demoProfile, createdAt: serverTimestamp() });
       } catch (_) { /* offline — localStorage session still works */ }
@@ -48,43 +80,54 @@ export function Login() {
     }
   };
 
-  /* ── Google login ───────────────────────────────────────── */
-  const handleGoogleLogin = async () => {
-    setError("");
-    setIsLoading(true);
-    try {
-      const result = await signInWithPopup(auth, new GoogleAuthProvider());
-      const user   = result.user;
-      const ref    = doc(db, "users", user.uid);
-      const snap   = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          uid: user.uid, name: user.displayName || "Google User",
-          email: user.email, role: "user", createdAt: serverTimestamp(),
-        });
-      }
-      navigate("/");
-    } catch (err: any) {
-      if (!["auth/popup-closed-by-user","auth/cancelled-popup-request"].includes(err.code))
-        setError(err.code === "auth/popup-blocked" ? "Popup blocked — please allow popups." : err.message);
-    } finally { setIsLoading(false); }
-  };
-
-  /* ── Email/password login ───────────────────────────────── */
+  /* ── Email/password login (Firestore-based) ────────────── */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) { setError("Please enter email and password."); return; }
     setError("");
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/");
-    } catch (err: any) {
-      const code = err.code;
-      if (["auth/invalid-credential","auth/user-not-found","auth/wrong-password"].includes(code))
+      // Look up user by email in Firestore
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email.toLowerCase().trim()));
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        setError("No account found with this email. Please register first.");
+        setIsLoading(false);
+        return;
+      }
+
+      const userDoc = snapshot.docs[0];
+      const userData = userDoc.data();
+
+      // Check password hash
+      if (userData.passwordHash && userData.passwordHash !== simpleHash(password)) {
         setError("Invalid email or password.");
-      else if (code === "auth/too-many-requests") setError("Too many attempts. Try again later.");
-      else setError(err.message);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if account is disabled
+      if (userData.disabled) {
+        setError("This account has been disabled. Please contact an administrator.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Login successful — save to localStorage
+      localStorage.setItem("demo_user", JSON.stringify({
+        uid: userData.uid || userDoc.id,
+        name: userData.name,
+        email: userData.email,
+        role: userData.role || "user",
+        phone: userData.phone || ""
+      }));
+
+      window.location.href = "/";
+    } catch (err: any) {
+      console.error("Login error:", err);
+      setError("Login failed: " + (err.message || "Please try again."));
     } finally { setIsLoading(false); }
   };
 
@@ -122,19 +165,6 @@ export function Login() {
             <Button type="submit" disabled={isLoading}
               className="w-full py-6 bg-sn-green text-sn-dark font-bold text-base hover:bg-sn-green/90 disabled:opacity-50">
               {isLoading ? "Signing in..." : "Sign In"}
-            </Button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-muted-foreground">Or</span>
-              </div>
-            </div>
-
-            <Button type="button" variant="outline" onClick={handleGoogleLogin} disabled={isLoading}
-              className="w-full py-5 border-2 font-bold flex items-center justify-center gap-2 hover:bg-muted/50">
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-              Sign in with Google
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">

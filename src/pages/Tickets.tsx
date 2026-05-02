@@ -72,6 +72,11 @@ export function Tickets() {
 
   const [tickets, setTickets] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [callerSearch, setCallerSearch] = useState("");
+  const [affectedSearch, setAffectedSearch] = useState("");
+  const [showCallerResults, setShowCallerResults] = useState(false);
+  const [showAffectedResults, setShowAffectedResults] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [previewNumber, setPreviewNumber] = useState("");
 
@@ -208,8 +213,9 @@ export function Tickets() {
   useEffect(() => {
     const q = query(collection(db, "users"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAgents(allUsers.filter((u: any) => u.role === "agent" || u.role === "admin"));
+      const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllUsers(usersList);
+      setAgents(usersList.filter((u: any) => u.role === "agent" || u.role === "admin" || u.role === "super_admin" || u.role === "ultra_super_admin"));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "users");
     });
@@ -604,29 +610,85 @@ export function Tickets() {
                     <label className="text-[11px] text-right font-medium uppercase leading-tight flex items-center justify-end gap-1">
                       <span className="text-red-500">*</span> Reporting User
                     </label>
-                    <div className="col-span-2 flex gap-1">
-                      <input 
-                        required
-                        placeholder="Who is reporting this incident?"
-                        value={newTicket.caller}
-                        onChange={e => setNewTicket({...newTicket, caller: e.target.value})}
-                        className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
-                      />
-                      <Button variant="outline" size="sm" className="h-8 w-8 p-0"><Search className="w-3 h-3" /></Button>
+                    <div className="col-span-2 relative">
+                      <div className="flex gap-1">
+                        <input 
+                          required
+                          placeholder="Search for caller..."
+                          value={callerSearch || newTicket.caller}
+                          onChange={e => {
+                            setCallerSearch(e.target.value);
+                            setShowCallerResults(true);
+                            setNewTicket({...newTicket, caller: e.target.value});
+                          }}
+                          onFocus={() => setShowCallerResults(true)}
+                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
+                        />
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setShowCallerResults(!showCallerResults)}><Search className="w-3 h-3" /></Button>
+                      </div>
+                      {showCallerResults && callerSearch && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-md shadow-lg max-h-40 overflow-y-auto custom-scrollbar">
+                          {allUsers.filter(u => 
+                            u.name?.toLowerCase().includes(callerSearch.toLowerCase()) || 
+                            u.email?.toLowerCase().includes(callerSearch.toLowerCase())
+                          ).map(u => (
+                            <div 
+                              key={u.id}
+                              className="p-2 hover:bg-sn-green/10 cursor-pointer text-xs"
+                              onClick={() => {
+                                setNewTicket({...newTicket, caller: u.name || u.email});
+                                setCallerSearch(u.name || u.email);
+                                setShowCallerResults(false);
+                              }}
+                            >
+                              <div className="font-bold">{u.name}</div>
+                              <div className="text-[10px] text-muted-foreground">{u.email}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium uppercase leading-tight flex items-center justify-end gap-1">
                       Affected User
                     </label>
-                    <div className="col-span-2 flex gap-1">
-                      <input 
-                        placeholder="Who is affected? (if different)"
-                        value={newTicket.affectedUser || ''}
-                        onChange={e => setNewTicket({...newTicket, affectedUser: e.target.value})}
-                        className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
-                      />
-                      <Button variant="outline" size="sm" className="h-8 w-8 p-0"><Search className="w-3 h-3" /></Button>
+                    <div className="col-span-2 relative">
+                      <div className="flex gap-1">
+                        <input 
+                          placeholder="Search affected user..."
+                          value={affectedSearch || newTicket.affectedUser || ''}
+                          onChange={e => {
+                            setAffectedSearch(e.target.value);
+                            setShowAffectedResults(true);
+                            setNewTicket({...newTicket, affectedUser: e.target.value});
+                          }}
+                          onFocus={() => setShowAffectedResults(true)}
+                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
+                        />
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setShowAffectedResults(!showAffectedResults)}><Search className="w-3 h-3" /></Button>
+                      </div>
+                      {showAffectedResults && affectedSearch && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-md shadow-lg max-h-40 overflow-y-auto custom-scrollbar">
+                          {allUsers.filter(u => 
+                            u.name?.toLowerCase().includes(affectedSearch.toLowerCase()) || 
+                            u.email?.toLowerCase().includes(affectedSearch.toLowerCase())
+                          ).map(u => (
+                            <div 
+                              key={u.id}
+                              className="p-2 hover:bg-sn-green/10 cursor-pointer text-xs"
+                              onClick={() => {
+                                setNewTicket({...newTicket, affectedUser: u.name || u.email});
+                                setAffectedSearch(u.name || u.email);
+                                setShowAffectedResults(false);
+                              }}
+                            >
+                              <div className="font-bold">{u.name}</div>
+                              <div className="text-[10px] text-muted-foreground">{u.email}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">

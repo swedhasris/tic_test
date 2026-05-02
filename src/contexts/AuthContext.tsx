@@ -35,19 +35,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
-    // Check for demo user in localStorage first
-    const demoUserStr = localStorage.getItem('demo_user');
-    if (demoUserStr) {
+    // Check for user session in localStorage (used by both registered users and demo users)
+    const sessionStr = localStorage.getItem('demo_user');
+    if (sessionStr) {
       try {
-        const demoUser = JSON.parse(demoUserStr);
+        const sessionUser = JSON.parse(sessionStr);
         setUser({
-          uid: demoUser.uid,
-          email: demoUser.email,
-          displayName: demoUser.name,
+          uid: sessionUser.uid,
+          email: sessionUser.email,
+          displayName: sessionUser.name,
         } as User);
-        setProfile(demoUser);
+        setProfile(sessionUser);
         setLoading(false);
-        return () => {};
+
+        // Subscribe to real-time Firestore updates so admin role changes apply immediately
+        const docRef = doc(db, "users", sessionUser.uid);
+        unsubscribeProfile = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const freshData = docSnap.data();
+            setProfile(freshData);
+            // Update localStorage to stay in sync
+            localStorage.setItem('demo_user', JSON.stringify({
+              uid: freshData.uid || sessionUser.uid,
+              name: freshData.name || sessionUser.name,
+              email: freshData.email || sessionUser.email,
+              role: freshData.role || sessionUser.role,
+              phone: freshData.phone || ""
+            }));
+          }
+        }, () => {
+          // Firestore listen failed — keep using cached session data
+        });
+
+        return () => { if (unsubscribeProfile) unsubscribeProfile(); };
       } catch (e) {
         localStorage.removeItem('demo_user');
       }
@@ -65,24 +85,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const docRef = doc(db, "users", user.uid);
         unsubscribeProfile = onSnapshot(docRef, async (docSnap) => {
           if (docSnap.exists()) {
-            setProfile(docSnap.data());
+            const data = docSnap.data();
+            // Optional: Sync name/email if they changed in Google but not in our DB
+            setProfile(data);
           } else {
-            // Auto-create profile if missing
-            console.log("Creating missing user profile for:", user.email);
+            // Auto-create profile if missing (Standard for Google & Email sign-ins)
             const initialProfile = {
               uid: user.uid,
               name: user.displayName || user.email?.split("@")[0] || "User",
               email: user.email,
               role: "user", // Default role
-              createdAt: new Date().toISOString()
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp()
             };
             try {
-              const { setDoc } = await import("firebase/firestore");
               await setDoc(docRef, initialProfile);
               setProfile(initialProfile);
             } catch (err) {
-              console.error("Failed to auto-create profile:", err);
-              setProfile(null);
+              handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`);
             }
           }
           setLoading(false);
