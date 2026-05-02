@@ -82,6 +82,11 @@ export function Tickets() {
 
   const openModal = () => {
     setPreviewNumber(`INC${Math.floor(1000000 + Math.random() * 9000000)}`);
+    setNewTicket(prev => ({
+      ...prev,
+      caller: profile?.name || user?.email || ""
+    }));
+    setCallerSearch(profile?.name || user?.email || "");
     setIsModalOpen(true);
   };
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,7 +100,7 @@ export function Tickets() {
   }, [action]);
 
   const [newTicket, setNewTicket] = useState({ 
-    caller: "",
+    caller: profile?.name || user?.email || "",
     category: "",
     categoryId: "",
     subcategory: "",
