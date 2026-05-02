@@ -223,6 +223,17 @@ export function TicketDetail() {
     if (!workNote.trim() || !id || !user) return;
     try {
       const historyEntry = { action: "Work Note Added", timestamp: new Date().toISOString(), user: profile?.name || user.email };
+      const now = new Date().toISOString();
+      const updates: any = {
+        updatedAt: serverTimestamp(),
+        history: [...(ticket.history || []), historyEntry]
+      };
+      
+      if (!ticket.firstResponseAt) {
+        updates.firstResponseAt = now;
+        updates.responseSlaStatus = "Completed";
+      }
+
       await addDoc(collection(db, "tickets", id, "comments"), {
         userId: user.uid,
         userName: profile?.name || user.email,
@@ -230,10 +241,7 @@ export function TicketDetail() {
         type: "work_note",
         createdAt: serverTimestamp()
       });
-      await updateDoc(doc(db, "tickets", id), {
-        updatedAt: serverTimestamp(),
-        history: [...(ticket.history || []), historyEntry]
-      });
+      await updateDoc(doc(db, "tickets", id), updates);
       setWorkNote("");
     } catch (error) { console.error(error); }
   };
