@@ -273,7 +273,26 @@ export function TicketDetail() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 border-r border-border pr-6 hidden md:flex">
+            <SLATimer 
+              label="Resp SLA" 
+              deadline={ticket.responseDeadline} 
+              metAt={ticket.firstResponseAt} 
+              isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+              onHoldStart={ticket.onHoldStart}
+              totalPausedTime={ticket.totalPausedTime}
+            />
+            <SLATimer 
+              label="Res SLA" 
+              deadline={ticket.resolutionDeadline} 
+              metAt={ticket.resolvedAt} 
+              isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+              onHoldStart={ticket.onHoldStart}
+              totalPausedTime={ticket.totalPausedTime}
+              waitUntil={ticket.firstResponseAt ?? null}
+            />
+          </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold border-border bg-white text-sn-dark">Update</Button>
             <Button size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold bg-sn-green text-sn-dark shadow-sm hover:bg-sn-green/90">Submit</Button>
