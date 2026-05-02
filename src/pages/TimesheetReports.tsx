@@ -28,7 +28,7 @@ export function TimesheetReports() {
       }
 
       // Get all timeCards for those timesheets in parallel using Promise.all
-      const cardPromises = tsList.map(ts => 
+      const cardPromises = tsList.map(ts =>
         getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", ts.id)))
       );
 
@@ -37,7 +37,7 @@ export function TimesheetReports() {
       cardSnapshots.forEach(snap => {
         snap.docs.forEach(d => allCards.push({ id: d.id, ...d.data() }));
       });
-      
+
       setAllCards(allCards);
     } catch (e) { console.error(e); }
     setLoading(false);

@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
+import { ROLE_HIERARCHY, Role } from "../lib/roles";
 import { 
   MessageSquare, 
   Search, 
@@ -58,7 +59,7 @@ export function Conversations() {
   useEffect(() => {
     if (!user || !profile) return;
 
-    const isAgent = profile.role === "agent" || profile.role === "admin" || profile.role === "super_admin";
+    const isAgent = ROLE_HIERARCHY[profile.role as Role] >= ROLE_HIERARCHY["agent"];
     const ticketsRef = collection(db, "tickets");
     
     // For simplicity, we show tickets that the user has access to

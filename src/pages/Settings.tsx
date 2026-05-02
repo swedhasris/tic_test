@@ -30,7 +30,8 @@ const MOCK_TRAFFIC_DATA = [
 ];
 
 export function Settings() {
-  const { user, profile, role } = useAuth();
+  const { user, profile } = useAuth();
+  const role = profile?.role || 'user';
   const { categories, subcategories, serviceProviders, groups, members } = useServiceCatalog();
   
   const [activeTab, setActiveTab] = useState<"master" | "automation" | "security" | "audit">("master");
@@ -48,6 +49,8 @@ export function Settings() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const isAdmin = ROLE_HIERARCHY[role] >= ROLE_HIERARCHY["admin"];
 
@@ -61,8 +64,35 @@ export function Settings() {
       onSnapshot(query(collection(db, "settings_audit_logs"), orderBy("timestamp", "desc")), snap => {
         setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as AuditLog)));
       });
+      // Fetch workflows
+      onSnapshot(query(collection(db, "settings_workflows"), orderBy("createdAt", "desc")), snap => {
+        setWorkflows(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
     }
   }, [isAdmin]);
+
+  const handleFileUpload = async (workflowId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      // Simulation of file upload (storing metadata in Firestore)
+      await updateDoc(doc(db, "settings_workflows", workflowId), {
+        attachment: {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          uploadedAt: new Date().toISOString()
+        },
+        updatedAt: serverTimestamp()
+      });
+      setMessage({ text: "Workflow file uploaded successfully!", type: "success" });
+    } catch (err: any) {
+      setMessage({ text: err.message, type: "error" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const createAuditLog = async (moduleId: string, moduleName: string, action: AuditLog['action'], oldVal: any, newVal: any) => {
     await addDoc(collection(db, "settings_audit_logs"), {
@@ -88,6 +118,7 @@ export function Settings() {
         'Service Provider': 'settings_service_providers',
         'Group': 'settings_groups',
         'Group Member': 'settings_group_members',
+        'Workflow': 'settings_workflows',
       };
       const collectionName = collectionMap[type];
       if (!collectionName) throw new Error(`Unknown type: ${type}`);
@@ -376,7 +407,94 @@ export function Settings() {
             </div>
           )}
 
-          {/* ... existing automation/security tabs ... */}
+          {activeTab === "automation" && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {workflows.map((wf) => (
+                  <div key={wf.id} className="bg-white dark:bg-sn-sidebar p-6 rounded-[32px] border border-border dark:border-white/5 shadow-xl hover:border-sn-green/30 transition-all group">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="p-3 bg-sn-green/10 rounded-2xl text-sn-green">
+                        <Zap size={20} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => { setEditingItem({ type: 'Workflow', data: wf }); setIsModalOpen(true); }}
+                          className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground hover:text-sn-green"
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleMutation('Workflow', 'delete', wf)}
+                          className="p-2 hover:bg-red-500/10 rounded-xl transition-colors text-muted-foreground hover:text-red-500"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    <h3 className="text-lg font-black mb-1">{wf.name}</h3>
+                    <p className="text-xs text-muted-foreground mb-4 line-clamp-2">{wf.description || "No description provided."}</p>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        <span>Trigger</span>
+                        <span className="text-sn-green">{wf.trigger || "On Ticket Create"}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        <span>Status</span>
+                        <span className={wf.status === 'active' ? "text-green-500" : "text-red-500"}>{wf.status}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-border dark:border-white/5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <label className="cursor-pointer p-2 bg-sn-dark text-sn-green rounded-xl hover:scale-105 transition-all inline-flex items-center gap-2">
+                          <HardDrive size={14} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Upload Script</span>
+                          <input type="file" className="hidden" onChange={(e) => handleFileUpload(wf.id, e)} />
+                        </label>
+                      </div>
+                      {wf.attachment && (
+                        <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground">
+                          <Box size={10} /> {wf.attachment.name.slice(0, 10)}...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                <button 
+                  onClick={() => { setEditingItem({ type: 'Workflow', data: {} }); setIsModalOpen(true); }}
+                  className="bg-dashed border-2 border-dashed border-border dark:border-white/10 rounded-[32px] p-6 flex flex-col items-center justify-center gap-4 hover:border-sn-green/50 hover:bg-sn-green/5 transition-all text-muted-foreground hover:text-sn-green min-h-[250px]"
+                >
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                    <Plus size={24} />
+                  </div>
+                  <span className="text-xs font-black uppercase tracking-[0.2em]">Add New Workflow</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "security" && (
+            <div className="bg-white dark:bg-sn-sidebar rounded-[40px] border border-border dark:border-white/5 p-12 shadow-2xl">
+              <div className="max-w-xl mx-auto text-center space-y-6">
+                <div className="w-20 h-20 bg-sn-green/10 rounded-[30px] flex items-center justify-center mx-auto text-sn-green">
+                  <Lock size={40} />
+                </div>
+                <h2 className="text-4xl font-black">Security Protocol</h2>
+                <p className="text-muted-foreground font-medium">Configure advanced encryption, session policies, and IP whitelisting for the enterprise environment.</p>
+                <div className="pt-8 grid grid-cols-1 gap-4">
+                  <div className="p-6 bg-muted/30 rounded-[32px] border border-border flex items-center justify-between">
+                    <div className="text-left">
+                      <div className="text-sm font-black">Two-Factor Authentication</div>
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase mt-1">Enforce 2FA for all administrative roles</div>
+                    </div>
+                    <div className="w-12 h-6 bg-sn-green rounded-full relative"><div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" /></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -487,6 +605,19 @@ export function Settings() {
                     <option value="lead">Group Lead</option>
                     <option value="manager">Service Manager</option>
                   </Select>
+                </>
+              )}
+
+              {editingItem.type === 'Workflow' && (
+                <>
+                  <Input label="Workflow Name" name="name" defaultValue={editingItem.data.name} required />
+                  <Select label="Trigger Condition" name="trigger" defaultValue={editingItem.data.trigger} required>
+                    <option value="On Ticket Create">On Ticket Create</option>
+                    <option value="On Priority Critical">On Priority Critical</option>
+                    <option value="On Resolution Breach">On Resolution Breach</option>
+                    <option value="On Customer Update">On Customer Update</option>
+                  </Select>
+                  <Textarea label="Logic Description" name="description" defaultValue={editingItem.data.description} />
                 </>
               )}
 

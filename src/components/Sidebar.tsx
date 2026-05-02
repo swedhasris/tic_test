@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { 
-  LayoutDashboard, 
-  Ticket, 
-  Users, 
-  Settings, 
-  LogOut, 
-  CheckSquare, 
-  BarChart3, 
-  History, 
+import {
+  LayoutDashboard,
+  Ticket,
+  Users,
+  Settings,
+  LogOut,
+  CheckSquare,
+  BarChart3,
+  History,
   Clock,
   Search,
   ChevronRight,
@@ -148,7 +148,7 @@ export function Sidebar() {
   ];
 
   const toggleSection = (label: string) => {
-    setExpandedSections(prev => 
+    setExpandedSections(prev =>
       prev.includes(label) ? prev.filter(s => s !== label) : [...prev, label]
     );
   };
@@ -191,7 +191,7 @@ export function Sidebar() {
             <span className="text-xl font-bold tracking-tight">Connect</span>
           </div>
         )}
-        <button 
+        <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-1.5 hover:bg-white/10 rounded transition-colors"
         >
@@ -204,7 +204,7 @@ export function Sidebar() {
         <div className="p-4">
           <div className="relative group">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-dim group-focus-within:text-sn-green transition-colors" />
-            <input 
+            <input
               type="text"
               placeholder="Filter navigator"
               value={searchQuery}
@@ -220,7 +220,7 @@ export function Sidebar() {
         {filteredMenu.map((section) => (
           <div key={section.label} className="mb-1">
             {!isCollapsed && (
-              <button 
+              <button
                 onClick={() => toggleSection(section.label)}
                 className="w-full flex items-center justify-between px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-text-dim hover:text-white transition-colors group"
               >
@@ -232,7 +232,7 @@ export function Sidebar() {
                 )}
               </button>
             )}
-            
+
             {(expandedSections.includes(section.label) || isCollapsed || searchQuery) && (
               <div className="space-y-0.5">
                 {section.items?.map((item) => (
@@ -241,8 +241,8 @@ export function Sidebar() {
                     to={item.path || "#"}
                     className={cn(
                       "flex items-center gap-3 px-4 py-2.5 transition-all relative group",
-                      location.pathname === item.path 
-                        ? "bg-sn-green/10 text-sn-green border-r-2 border-sn-green" 
+                      location.pathname === item.path
+                        ? "bg-sn-green/10 text-sn-green border-r-2 border-sn-green"
                         : "text-text-dim hover:bg-white/5 hover:text-white"
                     )}
                   >
@@ -256,7 +256,7 @@ export function Sidebar() {
                         {item.badge}
                       </span>
                     )}
-                    
+
                     {isCollapsed && (
                       <div className="absolute left-16 bg-sn-sidebar border border-white/10 px-3 py-2 rounded shadow-xl text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
                         {item.label}
@@ -272,7 +272,7 @@ export function Sidebar() {
 
       {/* Sidebar Footer */}
       <div className="p-4 border-t border-white/10 space-y-2">
-        <button 
+        <button
           onClick={() => setIsDarkMode(!isDarkMode)}
           className={cn(
             "flex items-center gap-3 px-4 py-2.5 w-full text-text-dim hover:text-white transition-colors rounded hover:bg-white/5",
@@ -282,7 +282,7 @@ export function Sidebar() {
           {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           {!isCollapsed && <span className="text-sm">{isDarkMode ? "Light Mode" : "Dark Mode"}</span>}
         </button>
-        <button 
+        <button
           onClick={() => signOut()}
           className={cn(
             "flex items-center gap-3 px-4 py-2.5 w-full text-text-dim hover:text-white transition-colors rounded hover:bg-white/5",

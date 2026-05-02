@@ -8,6 +8,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AIChatbot } from "./components/AIChatbot";
 import { seedInitialData } from "./lib/seed";
 import { useEffect } from "react";
+import { ROLE_HIERARCHY, Role } from "./lib/roles";
 
 // Lazy loaded components
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
@@ -51,7 +52,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, profile, loading } = useAuth();
 
   if (loading) return <LoadingScreen />;
-  
+
   if (!user) return <Navigate to="/login" />;
 
   const isAgent = profile?.role === "agent" || profile?.role === "admin" || profile?.role === "super_admin" || profile?.role === "ultra_super_admin";
@@ -79,8 +80,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function HomeRedirect() {
   const { profile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
-  
-  const isAgent = profile?.role === "agent" || profile?.role === "admin" || profile?.role === "super_admin" || profile?.role === "ultra_super_admin";
+
+  const isAgent = ROLE_HIERARCHY[profile?.role as Role] >= ROLE_HIERARCHY["agent"];
   return isAgent ? <Dashboard /> : <ServicePortal />;
 }
 
@@ -94,7 +95,7 @@ export default function App() {
 
 function AppBody() {
   const { user } = useAuth();
-  
+
   useEffect(() => {
     if (user) {
       seedInitialData();
@@ -104,213 +105,229 @@ function AppBody() {
   return (
     <Router>
       <Suspense fallback={<LoadingScreen />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route 
-              path="/" 
-              element={
-                <ProtectedRoute>
-                  <HomeRedirect />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/tickets" 
-              element={
-                <ProtectedRoute>
-                  <Tickets />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/tickets/:id" 
-              element={
-                <ProtectedRoute>
-                  <TicketDetail />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/history" 
-              element={
-                <ProtectedRoute>
-                  <GlobalHistory />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/sla" 
-              element={
-                <ProtectedRoute>
-                  <SLAManagement />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/approvals" 
-              element={
-                <ProtectedRoute>
-                  <Approvals />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/users" 
-              element={
-                <ProtectedRoute>
-                  <Users />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/timesheet" 
-              element={
-                <ProtectedRoute>
-                  <Timesheet />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/timesheet/weekly" 
-              element={
-                <ProtectedRoute>
-                  <TimesheetWeekly />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/timesheet/reports" 
-              element={
-                <ProtectedRoute>
-                  <TimesheetReports />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/reports" 
-              element={
-                <ProtectedRoute>
-                  <Reports />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/catalog" 
-              element={
-                <ProtectedRoute>
-                  <ServiceCatalog />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/cmdb" 
-              element={
-                <ProtectedRoute>
-                  <CMDB />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/conversations" 
-              element={
-                <ProtectedRoute>
-                  <Conversations />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/problem" 
-              element={
-                <ProtectedRoute>
-                  <ProblemManagement />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/change" 
-              element={
-                <ProtectedRoute>
-                  <ChangeManagement />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/kb" 
-              element={
-                <ProtectedRoute>
-                  <KnowledgeBase />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/calendar" 
-              element={
-                <ProtectedRoute>
-                  <Calendar />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/access-control" 
-              element={
-                <ProtectedRoute>
-                  <AccessControl />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/leaderboard" 
-              element={
-                <ProtectedRoute>
-                  <Leaderboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/approved-tickets" 
-              element={
-                <ProtectedRoute>
-                  <ApprovedTickets />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/companies" 
-              element={
-                <ProtectedRoute>
-                  <Companies />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/timesheet-approvals" 
-              element={
-                <ProtectedRoute>
-                  <TimesheetApprovals />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/groups" 
-              element={
-                <ProtectedRoute>
-                  <Groups />
-                </ProtectedRoute>
-              } 
-            />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </Suspense>
-      </Router>
-    );
-  }
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <HomeRedirect />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tickets"
+            element={
+              <ProtectedRoute>
+                <Tickets />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tickets/:id"
+            element={
+              <ProtectedRoute>
+                <TicketDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <ProtectedRoute>
+                <GlobalHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sla"
+            element={
+              <ProtectedRoute>
+                <SLAManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/approvals"
+            element={
+              <ProtectedRoute>
+                <Approvals />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute>
+                <Users />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet"
+            element={
+              <ProtectedRoute>
+                <Timesheet />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet/:weekStart"
+            element={
+              <ProtectedRoute>
+                <Timesheet />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet/weekly"
+            element={
+              <ProtectedRoute>
+                <TimesheetWeekly />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet/reports"
+            element={
+              <ProtectedRoute>
+                <TimesheetReports />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute>
+                <Reports />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/catalog"
+            element={
+              <ProtectedRoute>
+                <ServiceCatalog />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cmdb"
+            element={
+              <ProtectedRoute>
+                <CMDB />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/conversations"
+            element={
+              <ProtectedRoute>
+                <Conversations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/problem"
+            element={
+              <ProtectedRoute>
+                <ProblemManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/change"
+            element={
+              <ProtectedRoute>
+                <ChangeManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/kb"
+            element={
+              <ProtectedRoute>
+                <KnowledgeBase />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet/approvals"
+            element={
+              <ProtectedRoute>
+                <TimesheetApprovals />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/calendar"
+            element={
+              <ProtectedRoute>
+                <Calendar />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/access-control"
+            element={
+              <ProtectedRoute>
+                <AccessControl />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/leaderboard"
+            element={
+              <ProtectedRoute>
+                <Leaderboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/approved-tickets"
+            element={
+              <ProtectedRoute>
+                <ApprovedTickets />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/companies"
+            element={
+              <ProtectedRoute>
+                <Companies />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timesheet-approvals"
+            element={
+              <ProtectedRoute>
+                <TimesheetApprovals />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/groups"
+            element={
+              <ProtectedRoute>
+                <Groups />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Suspense>
+    </Router>
+  );
+}
 

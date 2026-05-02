@@ -15,7 +15,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function TimesheetApprovals() {
-  const { profile, role } = useAuth();
+  const { profile } = useAuth();
+  const role = profile?.role || 'user';
   const [timesheets, setTimesheets] = useState<any[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
   const [statusFilter, setStatusFilter] = useState("Submitted");

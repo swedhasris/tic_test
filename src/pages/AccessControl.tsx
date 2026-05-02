@@ -60,7 +60,8 @@ function Toggle({ enabled, onChange, disabled }: { enabled: boolean; onChange: (
 }
 
 export function AccessControl() {
-  const { profile, role: myRole } = useAuth();
+  const { profile } = useAuth();
+  const myRole = profile?.role || 'user';
   const [users, setUsers]           = useState<any[]>([]);
   const [search, setSearch]         = useState("");
   const [filterRole, setFilterRole] = useState("all");

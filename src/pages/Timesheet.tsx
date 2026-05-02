@@ -11,7 +11,7 @@ import {
   collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
   doc, serverTimestamp, orderBy, onSnapshot
 } from "firebase/firestore";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 /* ─── constants ─── */
 const STATUS_COLORS: Record<string, string> = {
@@ -172,19 +172,21 @@ export function Timesheet() {
   const [waMessage, setWaMessage] = useState("");
   const [waAutoSync, setWaAutoSync] = useState(true);
 
+  const { weekStart: urlWeekStart } = useParams();
+
   /* ── Firestore load ── */
   const monday = getMonday(new Date());
-  const weekStart = formatDate(monday);
-  const weekEnd = formatDate(new Date(monday.getTime() + 6 * 86400000));
+  const weekStart = urlWeekStart || formatDate(monday);
+  const weekEnd = formatDate(new Date(new Date(weekStart).getTime() + 6 * 86400000));
 
-  useEffect(() => { loadData(); }, [user]);
+  useEffect(() => { loadData(); }, [user, weekStart]);
 
   async function loadData() {
     if (!user) return;
     setLoading(true);
     try {
       console.log("[Timesheet] Loading data for user:", user.uid, "weekStart:", weekStart);
-      
+
       // First, get or create timesheet
       const tsQuery = query(
         collection(db, "timesheets"),
@@ -192,7 +194,7 @@ export function Timesheet() {
         where("weekStart", "==", weekStart)
       );
       const tsSnap = await getDocs(tsQuery);
-      
+
       let ts: any;
       if (tsSnap.empty) {
         console.log("[Timesheet] Creating new timesheet");
@@ -210,12 +212,12 @@ export function Timesheet() {
       // Then fetch time cards
       const cardsQuery = query(collection(db, "timeCards"), where("timesheetId", "==", ts.id));
       const cardsSnap = await getDocs(cardsQuery);
-      
+
       const cards = cardsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       cards.sort((a: any, b: any) => (a.entryDate || "").localeCompare(b.entryDate || ""));
       console.log("[Timesheet] Loaded", cards.length, "time cards for timesheet", ts.id);
       setTimeCards(cards);
-    } catch (e) { 
+    } catch (e) {
       console.error("[Timesheet] Error loading data:", e);
     } finally {
       // Pre-fill user info

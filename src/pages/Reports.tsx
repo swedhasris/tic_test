@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { collection, query, onSnapshot, where } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
+import { ROLE_HIERARCHY, Role } from "../lib/roles";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Map } from "lucide-react";
 
@@ -14,7 +15,7 @@ export function Reports() {
   useEffect(() => {
     if (!user || !profile) return;
 
-    const isAgent = profile.role === "agent" || profile.role === "admin" || profile.role === "super_admin";
+    const isAgent = ROLE_HIERARCHY[profile.role as Role] >= ROLE_HIERARCHY["agent"];
     const ticketsRef = collection(db, "tickets");
     const q = isAgent 
       ? query(ticketsRef) 

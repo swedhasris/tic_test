@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { collection, addDoc, query, onSnapshot, updateDoc, doc, serverTimestamp, orderBy, where } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
+import { ROLE_HIERARCHY, Role } from "../lib/roles";
 import { Plus, Filter, MoreVertical, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
@@ -184,7 +185,7 @@ export function Tickets() {
     if (!user || !profile) return;
 
     const ticketsRef = collection(db, "tickets");
-    const isAgent = profile?.role === "agent" || profile?.role === "admin" || profile?.role === "super_admin";
+    const isAgent = ROLE_HIERARCHY[profile?.role as Role] >= ROLE_HIERARCHY["agent"];
     
     let q = query(ticketsRef, orderBy("createdAt", "desc"));
     
@@ -242,10 +243,26 @@ export function Tickets() {
 
   const filteredTickets = tickets.filter(t => {
     // Top-level quick filters
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
+    const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+    
+    const getTs = (tick: any) => {
+      const c = tick.createdAt;
+      if (!c) return 0;
+      if (c?.seconds) return c.seconds * 1000;
+      if (typeof c === "string") return new Date(c).getTime();
+      return 0;
+    };
+
     if (filter === "assigned_to_me" && t.assignedTo !== user?.uid) return false;
-    if (filter === "open" && (t.status === "Resolved" || t.status === "Closed")) return false;
+    if (filter === "open" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled")) return false;
     if (filter === "unassigned" && t.assignedTo) return false;
     if (filter === "resolved" && t.status !== "Resolved" && t.status !== "Closed") return false;
+    if (filter === "critical_open" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled" || !t.priority?.includes("Critical"))) return false;
+    if (filter === "overdue" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled" || !t.resolutionDeadline || new Date(t.resolutionDeadline).getTime() > now)) return false;
+    if (filter === "stale_7" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled" || getTs(t) >= sevenDaysAgo)) return false;
+    if (filter === "older_30" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled" || getTs(t) >= thirtyDaysAgo)) return false;
 
     // Column-level search filters (case-insensitive)
     const matches = (val: string, filterVal: string) => !filterVal || (val || "").toLowerCase().includes(filterVal.toLowerCase());
