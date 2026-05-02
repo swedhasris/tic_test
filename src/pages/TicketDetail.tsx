@@ -84,8 +84,14 @@ export function TicketDetail() {
       // The 'Submit' button should always save editedTicket.
 
       const { id: _, ...payload } = editedTicket;
+      
+      const assignedUserName = editedTicket.assignedTo 
+        ? agents.find(a => a.id === editedTicket.assignedTo)?.name || editedTicket.assignedToName || "" 
+        : "";
+
       const updates: any = {
         ...payload,
+        assignedToName: assignedUserName,
         updatedAt: serverTimestamp(),
         history: [...(ticket.history || []), ...historyEntries]
       };
@@ -329,6 +335,9 @@ export function TicketDetail() {
                 <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Assigned to</label>
                 <select className="col-span-2 p-1.5 border border-border rounded text-xs outline-none h-8" value={editedTicket?.assignedTo || ""} onChange={(e) => updateLocalField("assignedTo", e.target.value)}>
                   <option value="">-- None --</option>
+                  {editedTicket?.assignedTo && !agents.some(a => a.id === editedTicket.assignedTo) && (
+                    <option value={editedTicket.assignedTo}>{editedTicket.assignedToName || editedTicket.assignedTo} (Legacy)</option>
+                  )}
                   {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}
                 </select>
               </div>

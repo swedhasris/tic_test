@@ -261,7 +261,7 @@ export function Tickets() {
       return 0;
     };
 
-    if (filter === "assigned_to_me" && t.assignedTo !== user?.uid) return false;
+    if (filter === "assigned_to_me" && t.assignedTo !== user?.uid && t.assignedTo !== profile?.name && t.assignedToName !== profile?.name) return false;
     if (filter === "open" && (t.status === "Resolved" || t.status === "Closed" || t.status === "Canceled")) return false;
     if (filter === "unassigned" && t.assignedTo) return false;
     if (filter === "resolved" && t.status !== "Resolved" && t.status !== "Closed") return false;
@@ -281,7 +281,7 @@ export function Tickets() {
       matches(t.status, columnFilters.status) &&
       matches(t.category, columnFilters.category) &&
       matches(t.assignmentGroup, columnFilters.assignmentGroup) &&
-      matches(agents.find(a => a.id === t.assignedTo)?.name || "", columnFilters.assignedTo)
+      matches(agents.find(a => a.id === t.assignedTo)?.name || t.assignedToName || t.assignedTo || "", columnFilters.assignedTo)
     );
   });
 
@@ -391,12 +391,18 @@ export function Tickets() {
       // Workflow Automation: Auto-assignment based on category
       const assignmentGroup = newTicket.assignmentGroup || visibleGroups[0]?.name || "Service Desk";
 
+      // Determine assigned user name if applicable
+      const assignedUserName = newTicket.assignedTo 
+        ? visibleMembers.find(m => m.userId === newTicket.assignedTo)?.userName || agents.find(a => a.id === newTicket.assignedTo)?.name || ""
+        : "";
+
       const ticketData = {
         ...newTicket,
         number: ticketNumber,
         assignmentGroup,
+        assignedToName: assignedUserName,
         priority,
-        status: "New",
+        status: newTicket.assignedTo ? "Assigned" : "New",
         createdBy: user.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -461,6 +467,7 @@ export function Tickets() {
     const agent = agents.find(a => a.id === agentId);
     await updateDoc(ticketRef, {
       assignedTo: agentId,
+      assignedToName: agent?.name || "",
       status: agentId ? "Assigned" : "New",
       updatedAt: serverTimestamp(),
       history: [
@@ -549,7 +556,7 @@ export function Tickets() {
                     <td className="p-2 text-[11px]">{ticket.status}</td>
                     <td className="p-2 text-[11px]">{ticket.category}</td>
                     <td className="p-2 text-[11px]">{ticket.assignmentGroup || "(empty)"}</td>
-                    <td className="p-2 text-[11px]">{assignedAgent?.name || "(empty)"}</td>
+                    <td className="p-2 text-[11px]">{assignedAgent?.name || ticket.assignedToName || ticket.assignedTo || "(empty)"}</td>
                     <td className="p-2">
                       <div className="flex flex-col gap-1">
                         <SLATimer 
