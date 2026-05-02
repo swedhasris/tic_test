@@ -96,10 +96,10 @@ export function TicketDetail() {
         history: [...(ticket.history || []), ...historyEntries]
       };
 
-      if (editedTicket.status !== ticket.status) {
-        const isResolved = editedTicket.status === "Resolved" || editedTicket.status === "Closed";
-        const isPaused = editedTicket.status === "On Hold" || editedTicket.status === "Waiting for Customer";
+      const isResolved = editedTicket.status === "Resolved" || editedTicket.status === "Closed";
+      const isPaused = editedTicket.status === "On Hold" || editedTicket.status === "Waiting for Customer";
 
+      if (editedTicket.status !== ticket.status) {
         if (isResolved && !ticket.resolvedAt) {
           updates.resolvedAt = new Date().toISOString();
           updates.resolvedBy = profile?.name || user.email;
