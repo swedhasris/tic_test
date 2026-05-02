@@ -3,115 +3,133 @@ import { cn } from "@/lib/utils";
 
 interface SLATimerProps {
   label: string;
-  startTime: string;
   deadline: string;
-  stoppedAt?: string;
-  onHoldStart?: string | null;
+  metAt?: string;
+  isPaused?: boolean;
+  onHoldStart?: string;
   totalPausedTime?: number;
+  waitUntil?: string | null;
 }
 
-export function SLATimer({ 
-  label, 
-  startTime, 
-  deadline, 
-  stoppedAt, 
-  onHoldStart, 
-  totalPausedTime = 0 
+export function SLATimer({
+  label,
+  deadline,
+  metAt,
+  isPaused = false,
+  onHoldStart,
+  totalPausedTime = 0,
+  waitUntil,
 }: SLATimerProps) {
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const [percentage, setPercentage] = useState<number>(0);
-  const [status, setStatus] = useState<"Within SLA" | "At Risk" | "Breached">("Within SLA");
+  const [displayTime, setDisplayTime] = useState("");
+  const [status, setStatus] = useState<"waiting" | "met" | "breached" | "active" | "paused">("active");
+  const [percentage, setPercentage] = useState(0);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      const start = new Date(startTime).getTime();
-      const end = new Date(deadline).getTime();
-      const totalDuration = end - start;
-      const now = stoppedAt ? new Date(stoppedAt).getTime() : Date.now();
-      
-      let effectiveNow = now;
-      let extraPaused = 0;
-      
-      if (onHoldStart && !stoppedAt) {
-        // Currently on hold, don't count time passed since onHoldStart
-        extraPaused = now - new Date(onHoldStart).getTime();
-        effectiveNow = new Date(onHoldStart).getTime();
-      }
+    // SLA already met — freeze the display
+    if (metAt) {
+      setStatus("met");
+      setDisplayTime("MET ✓");
+      setPercentage(100);
+      return;
+    }
 
-      const elapsed = (effectiveNow - start) - totalPausedTime;
-      const remaining = totalDuration - elapsed;
-      
-      setTimeLeft(remaining);
-      
-      const percentUsed = Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
-      setPercentage(percentUsed);
+    // Resolution SLA: waiting for first response before starting
+    if (waitUntil !== undefined && (waitUntil === null || waitUntil === "")) {
+      setStatus("waiting");
+      setDisplayTime("—");
+      return;
+    }
 
-      if (remaining <= 0) {
-        setStatus("Breached");
-      } else if (percentUsed >= 80) {
-        setStatus("At Risk");
+    const deadlineMs = new Date(deadline).getTime();
+    if (isNaN(deadlineMs)) {
+      setDisplayTime("--:--:--");
+      return;
+    }
+
+    const tick = () => {
+      const now = Date.now();
+      const effectiveNow =
+        isPaused && onHoldStart
+          ? new Date(onHoldStart).getTime()
+          : now;
+
+      const diff = deadlineMs - effectiveNow + (totalPausedTime || 0);
+
+      if (diff <= 0) {
+        setStatus("breached");
+        const over = Math.abs(diff);
+        const h = Math.floor(over / 3_600_000);
+        const m = Math.floor((over % 3_600_000) / 60_000);
+        const s = Math.floor((over % 60_000) / 1_000);
+        setDisplayTime(
+          `-${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        );
+        setPercentage(100);
       } else {
-        setStatus("Within SLA");
+        setStatus(isPaused ? "paused" : "active");
+        const h = Math.floor(diff / 3_600_000);
+        const m = Math.floor((diff % 3_600_000) / 60_000);
+        const s = Math.floor((diff % 60_000) / 1_000);
+        setDisplayTime(
+          `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        );
+        // rough % used — not perfect without startTime, but good enough for UI
+        const rough = Math.min(Math.max(((24 * 3_600_000 - diff) / (24 * 3_600_000)) * 100, 0), 99);
+        setPercentage(rough);
       }
-    }, 1000);
+    };
 
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [startTime, deadline, stoppedAt, onHoldStart, totalPausedTime]);
+  }, [deadline, metAt, isPaused, onHoldStart, totalPausedTime, waitUntil]);
 
-  const formatTime = (ms: number) => {
-    const isNegative = ms < 0;
-    const absMs = Math.abs(ms);
-    const h = Math.floor(absMs / (1000 * 60 * 60));
-    const m = Math.floor((absMs % (1000 * 60 * 60)) / (1000 * 60));
-    const s = Math.floor((absMs % (1000 * 60)) / 1000);
-    return `${isNegative ? "-" : ""}${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
+  const barColor =
+    status === "met"
+      ? "bg-green-500"
+      : status === "breached"
+      ? "bg-red-500"
+      : status === "paused"
+      ? "bg-orange-400"
+      : "bg-sn-green";
 
-  const getStatusColor = () => {
-    if (status === "Breached") return "bg-red-500";
-    if (status === "At Risk") return "bg-yellow-500";
-    return "bg-sn-green";
-  };
-
-  const getTextColor = () => {
-    if (status === "Breached") return "text-red-500";
-    if (status === "At Risk") return "text-yellow-600";
-    return "text-sn-green";
-  };
+  const textColor =
+    status === "met"
+      ? "text-green-600"
+      : status === "breached"
+      ? "text-red-600"
+      : status === "paused"
+      ? "text-orange-500"
+      : status === "waiting"
+      ? "text-gray-400"
+      : "text-blue-600";
 
   return (
-    <div className="space-y-2 p-3 bg-muted/20 rounded-lg border border-border">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground uppercase">{label}</span>
-        <span className={cn("text-xs font-bold px-2 py-0.5 rounded-full uppercase", 
-          status === "Breached" ? "bg-red-100 text-red-700" : 
-          status === "At Risk" ? "bg-yellow-100 text-yellow-700" : 
-          "bg-green-100 text-green-700"
-        )}>
-          {status}
+    <div className="flex flex-col gap-0.5 min-w-[90px]">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[9px] uppercase text-muted-foreground font-bold leading-none">
+          {label}
         </span>
+        {status === "paused" && (
+          <span className="text-[8px] font-black text-orange-500 uppercase animate-pulse">
+            PAUSED
+          </span>
+        )}
       </div>
-      
-      <div className="flex items-baseline justify-between">
-        <div className={cn("text-xl font-mono font-bold", getTextColor())}>
-          {formatTime(timeLeft)}
-        </div>
-        <div className="text-[10px] text-muted-foreground">
-          Deadline: {new Date(deadline).toLocaleString()}
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-          <div 
-            className={cn("h-full transition-all duration-500", getStatusColor())} 
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] text-muted-foreground">
-          <span>{percentage.toFixed(0)}% used</span>
-          {onHoldStart && !stoppedAt && <span className="text-blue-500 font-bold animate-pulse">PAUSED</span>}
-        </div>
+      <span
+        className={cn(
+          "text-[13px] font-mono font-bold leading-tight tracking-tight",
+          textColor
+        )}
+      >
+        {displayTime}
+      </span>
+      {/* Progress bar */}
+      <div className="w-full h-1 bg-muted rounded-full overflow-hidden mt-0.5">
+        <div
+          className={cn("h-full transition-all duration-500", barColor)}
+          style={{ width: `${percentage}%` }}
+        />
       </div>
     </div>
   );
