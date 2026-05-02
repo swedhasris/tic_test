@@ -100,6 +100,13 @@ export function TicketDetail() {
       const isPaused = editedTicket.status === "On Hold" || editedTicket.status === "Waiting for Customer";
 
       if (editedTicket.status !== ticket.status) {
+        
+        // Stop Response SLA if the state is changed out of "New" (i.e. acknowledging the ticket)
+        if (editedTicket.status !== "New" && !ticket.firstResponseAt) {
+          updates.firstResponseAt = new Date().toISOString();
+          updates.responseSlaStatus = "Completed";
+        }
+
         if (isResolved && !ticket.resolvedAt) {
           updates.resolvedAt = new Date().toISOString();
           updates.resolvedBy = profile?.name || user.email;
@@ -539,7 +546,16 @@ export function TicketDetail() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono">{formatDate(ticket.responseDeadline)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{ticket.firstResponseAt ? "Completed" : <span className="flex items-center gap-1"><Clock className="w-3 h-3 animate-pulse" /> Calculating</span>}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <SLATimer 
+                            label="Resp" 
+                            deadline={ticket.responseDeadline} 
+                            metAt={ticket.firstResponseAt} 
+                            isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+                            onHoldStart={ticket.onHoldStart}
+                            totalPausedTime={ticket.totalPausedTime}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono">{ticket.firstResponseAt ? formatDate(ticket.firstResponseAt) : "—"}</td>
                       </tr>
                       <tr className="hover:bg-muted/10 transition-colors">
@@ -553,7 +569,17 @@ export function TicketDetail() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono">{formatDate(ticket.resolutionDeadline)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{ticket.resolvedAt ? "Completed" : <span className="flex items-center gap-1"><Clock className="w-3 h-3 animate-pulse" /> Calculating</span>}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <SLATimer 
+                            label="Res" 
+                            deadline={ticket.resolutionDeadline} 
+                            metAt={ticket.resolvedAt} 
+                            isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+                            onHoldStart={ticket.onHoldStart}
+                            totalPausedTime={ticket.totalPausedTime}
+                            waitUntil={ticket.firstResponseAt ?? null}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono">{ticket.resolvedAt ? formatDate(ticket.resolvedAt) : "—"}</td>
                       </tr>
                     </tbody>
