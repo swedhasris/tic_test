@@ -128,17 +128,30 @@ export function Leaderboard() {
           stat.breachedCount += 1;
         }
 
-        // Calculate SLA score for this ticket
-        let ticketScore = 50; // base score
-        if (isOnTime && !isBreached) {
-          ticketScore += 50; // on-time bonus
-          // Extra bonus for fast resolution (>50% faster than SLA)
-          if (resolutionHours < slaTargetHours * 0.5) {
-            ticketScore += 25;
-          }
-        } else if (isBreached) {
-          ticketScore = Math.max(0, ticketScore - 30); // penalty
+        // --- ADVANCED SLA SCORING (Matches TicketDetail.tsx) ---
+        let ticketScore = 0;
+
+        // 1. Priority Base Points
+        const priorityStr = data.priority || "4 - Low";
+        let basePoints = 10;
+        if (priorityStr.includes("1")) basePoints = 100;
+        else if (priorityStr.includes("2")) basePoints = 50;
+        else if (priorityStr.includes("3")) basePoints = 25;
+        ticketScore += basePoints;
+
+        // 2. Response Bonus
+        if (data.responseSlaStatus === "Completed") {
+          ticketScore += 50;
         }
+
+        // 3. Resolution Speed Bonus
+        if (isOnTime && !isBreached) {
+          const speedBonus = Math.round(( (slaTargetHours - resolutionHours) / slaTargetHours ) * 100);
+          ticketScore += Math.max(speedBonus, 10);
+        } else if (isBreached) {
+          ticketScore = Math.round(ticketScore * 0.5); // Penalty
+        }
+        
         stat.slaScore += ticketScore;
 
         // Track fastest resolution
