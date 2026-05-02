@@ -70,13 +70,18 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
+  const [users, setUsers] = useState<any[]>([]);
+
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "tickets")), snap => {
+    const unsubTickets = onSnapshot(query(collection(db, "tickets")), snap => {
       setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
       setLastRefresh(new Date());
     });
-    return unsub;
+    const unsubUsers = onSnapshot(query(collection(db, "users")), snap => {
+      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubTickets(); unsubUsers(); };
   }, []);
 
   const now = Date.now();
@@ -297,7 +302,9 @@ export function Dashboard() {
                       <span className="text-[11px] font-medium">{t.status ?? "New"}</span>
                     </td>
                     <td className="p-3 text-[11px] text-muted-foreground">{t.category ?? "—"}</td>
-                    <td className="p-3 text-[11px] font-medium">{t.assignedToName || "Unassigned"}</td>
+                    <td className="p-3 text-[11px] font-medium">
+                      {t.assignedToName || users.find(u => u.id === t.assignedTo)?.name || t.assignedTo || "Unassigned"}
+                    </td>
                     <td className="p-3">
                       <div className="flex flex-col gap-1.5">
                         <SLATimer 
