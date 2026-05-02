@@ -140,6 +140,8 @@ export function Sidebar() {
         { icon: Users, label: "Group Management", path: "/groups" },
         { icon: Settings2, label: "System Settings", path: "/settings" },
         { icon: CheckCircle2, label: "Approved Tickets", path: "/approved-tickets" },
+        { icon: ClipboardList, label: "Timesheet Approvals", path: "/timesheet/approvals" },
+        { icon: CheckCircle2, label: "Approved Timesheets", path: "/timesheet/reports?status=Approved" },
       ]
     }
   ];
