@@ -148,20 +148,37 @@ export function TicketDetail() {
         }
       }
 
-      // Calculate points if resolving
+      // --- ADVANCED SCORING LOGIC ---
       let pointsAwarded = 0;
-      if (isResolved && !ticket.resolvedAt && ticket.resolutionDeadline) {
-        const deadline = new Date(ticket.resolutionDeadline).getTime();
-        const resolvedAtMs = new Date().getTime();
-        const createdAtMs = ticket.createdAt?.seconds ? ticket.createdAt.seconds * 1000 : (typeof ticket.createdAt === 'string' ? new Date(ticket.createdAt).getTime() : 0);
+      if (isResolved && !ticket.resolvedAt) {
+        // 1. Priority Base Points
+        const priorityStr = ticket.priority || "4 - Low";
+        let basePoints = 10;
+        if (priorityStr.includes("1")) basePoints = 100;
+        else if (priorityStr.includes("2")) basePoints = 50;
+        else if (priorityStr.includes("3")) basePoints = 25;
         
-        if (createdAtMs > 0 && resolvedAtMs < deadline) {
-          const totalSla = deadline - createdAtMs;
-          const timeSaved = deadline - resolvedAtMs;
-          pointsAwarded = Math.round((timeSaved / totalSla) * 100);
-          if (pointsAwarded < 10) pointsAwarded = 10;
-        } else {
-          pointsAwarded = 5;
+        pointsAwarded += basePoints;
+
+        // 2. Response Bonus (if acknowledged on time)
+        if (ticket.responseSlaStatus === "Completed") {
+          pointsAwarded += 50;
+        }
+
+        // 3. Resolution Speed Bonus
+        if (ticket.resolutionDeadline) {
+          const deadline = new Date(ticket.resolutionDeadline).getTime();
+          const resolvedAtMs = new Date().getTime();
+          const createdAtMs = ticket.createdAt?.seconds ? ticket.createdAt.seconds * 1000 : (typeof ticket.createdAt === 'string' ? new Date(ticket.createdAt).getTime() : 0);
+          
+          if (createdAtMs > 0 && resolvedAtMs < deadline) {
+            const totalSla = deadline - createdAtMs;
+            const timeSaved = deadline - resolvedAtMs;
+            const speedBonus = Math.round((timeSaved / totalSla) * 100);
+            pointsAwarded += Math.max(speedBonus, 10); // Min 10 points for meeting SLA
+          } else if (resolvedAtMs >= deadline) {
+            pointsAwarded = Math.round(pointsAwarded * 0.5); // Penalty: 50% points if breached
+          }
         }
       }
 
@@ -180,7 +197,7 @@ export function TicketDetail() {
           origin: { y: 0.6 },
           colors: ["#22c55e", "#fbbf24", "#3b82f6"]
         });
-        alert(`Great job! Ticket resolved. You earned ${pointsAwarded} points! 🏆`);
+        alert(`Awesome resolution! You earned ${pointsAwarded} points!\n\nBreakdown:\n- Priority Base: Included\n- Response Bonus: ${ticket.responseSlaStatus === "Completed" ? "Yes" : "No"}\n- Speed Bonus: Applied`);
         setTimeout(() => navigate("/tickets"), 1500);
       } else {
         alert("Incident updated successfully");
