@@ -1,0 +1,789 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  ChevronUp, ChevronDown, Clock, Calendar as CalendarIcon, Plus, Save,
+  RotateCcw, History, Trash2, Bold, Italic, Underline, List, ListOrdered,
+  Paperclip, Link2, Image, Mic, CheckSquare, Mail, Send, Phone,
+  MessageCircle, ChevronRight, FileText, Copy, Printer, RefreshCw
+} from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { db } from "../lib/firebase";
+import {
+  collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
+  doc, serverTimestamp, orderBy, onSnapshot
+} from "firebase/firestore";
+import { Link } from "react-router-dom";
+
+/* ─── constants ─── */
+const STATUS_COLORS: Record<string, string> = {
+  Draft: "bg-gray-100 text-gray-700",
+  Submitted: "bg-blue-100 text-blue-700",
+  Approved: "bg-green-100 text-green-700",
+  Rejected: "bg-red-100 text-red-700",
+};
+
+const DEFAULT_TASKS = [
+  "General Support", "Ticket Resolution", "Project Work",
+  "Training", "Meeting", "Documentation",
+  "System Maintenance", "Bug Fix", "Feature Development", "Code Review"
+];
+
+const WORK_TYPES = ["Remote", "On-Site", "Hybrid", "Travel"];
+const BILLABLE_OPTIONS = ["Billable", "Non-Billable", "Internal"];
+const WORK_ROLES = ["ROC Technician", "Developer", "Project Manager", "Support Engineer", "Consultant"];
+const LOCATIONS = ["Corporate", "Remote", "Branch Office", "Client Site"];
+const GROUPS = ["Service Division", "Engineering", "Support", "Operations"];
+const TICKET_STATUSES = ["In Progress", "Open", "Pending", "On Hold", "Resolved", "Closed"];
+const AGREEMENTS = [
+  "F12 Evolve/Davis Webb Inc. - F12 Evolve",
+  "Standard Support Agreement",
+  "Premium SLA",
+  "Ad-hoc Billing"
+];
+
+/* ─── helpers ─── */
+function getMonday(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function formatDate(d: Date): string { return d.toISOString().split("T")[0]; }
+function formatTimestamp(d: Date): string {
+  return d.toLocaleDateString("en-US", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function nowTimeStr(): string {
+  const d = new Date();
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hr = h % 12 || 12;
+  return `${hr}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
+/* ─── Collapsible Section ─── */
+function Section({ title, icon, defaultOpen = true, headerRight, accentColor, children }: {
+  title: string; icon?: React.ReactNode; defaultOpen?: boolean;
+  headerRight?: React.ReactNode; accentColor?: string; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-border rounded-lg bg-white shadow-sm overflow-hidden">
+      <div
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-3 bg-white hover:bg-muted/20 transition-colors cursor-pointer select-none"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className={`text-sm font-bold ${accentColor || "text-blue-600"}`}>{title}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {headerRight && <div onClick={(e) => e.stopPropagation()}>{headerRight}</div>}
+          {open ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+        </div>
+      </div>
+      {open && <div className="border-t border-border">{children}</div>}
+    </div>
+  );
+}
+
+/* ─── Rich Text Toolbar ─── */
+function RichTextToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivElement | null> }) {
+  const exec = (cmd: string, val?: string) => {
+    document.execCommand(cmd, false, val);
+    editorRef.current?.focus();
+  };
+  return (
+    <div className="flex items-center gap-1 px-3 py-2 border-t border-border bg-muted/20 flex-wrap">
+      <button type="button" onClick={() => exec("bold")} className="p-1.5 hover:bg-muted rounded transition-colors" title="Bold"><Bold className="w-4 h-4" /></button>
+      <button type="button" onClick={() => exec("italic")} className="p-1.5 hover:bg-muted rounded transition-colors" title="Italic"><Italic className="w-4 h-4" /></button>
+      <button type="button" onClick={() => exec("underline")} className="p-1.5 hover:bg-muted rounded transition-colors" title="Underline"><Underline className="w-4 h-4" /></button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <button type="button" onClick={() => exec("insertUnorderedList")} className="p-1.5 hover:bg-muted rounded transition-colors" title="Bullet List"><List className="w-4 h-4" /></button>
+      <button type="button" onClick={() => exec("insertOrderedList")} className="p-1.5 hover:bg-muted rounded transition-colors" title="Numbered List"><ListOrdered className="w-4 h-4" /></button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <button type="button" className="p-1.5 hover:bg-muted rounded transition-colors" title="Attachment"><Paperclip className="w-4 h-4" /></button>
+      <button type="button" onClick={() => { const url = prompt("URL:"); if (url) exec("createLink", url); }} className="p-1.5 hover:bg-muted rounded transition-colors" title="Link"><Link2 className="w-4 h-4" /></button>
+      <button type="button" className="p-1.5 hover:bg-muted rounded transition-colors" title="Image"><Image className="w-4 h-4" /></button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <select className="text-xs border border-border rounded px-2 py-1 bg-white outline-none focus:ring-1 focus:ring-sn-green">
+        <option>Choose standard note...</option>
+        <option>Completed work</option>
+        <option>Awaiting parts</option>
+        <option>Escalated to vendor</option>
+      </select>
+      <button type="button" className="p-1.5 hover:bg-muted rounded transition-colors ml-1" title="Dictation"><Mic className="w-4 h-4" /></button>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════ MAIN ════════════════════════════════════════ */
+export function Timesheet() {
+  const { user, profile } = useAuth();
+
+  /* ── state ── */
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [timesheet, setTimesheet] = useState<any>(null);
+  const [timeCards, setTimeCards] = useState<any[]>([]);
+  const [editingCard, setEditingCard] = useState<any>(null);
+
+  // Overview fields
+  const [company, setCompany] = useState("");
+  const [entryDate, setEntryDate] = useState(formatDate(new Date()));
+  const [overnight, setOvernight] = useState(false);
+  const [workRole, setWorkRole] = useState("ROC Technician");
+  const [agreement, setAgreement] = useState(AGREEMENTS[0]);
+  const [enterTimeRecord, setEnterTimeRecord] = useState(true);
+  const [location, setLocation] = useState("Corporate");
+  const [groups, setGroups] = useState("Service Division");
+  const [ticketStatus, setTicketStatus] = useState("In Progress");
+  const [noteDiscussion, setNoteDiscussion] = useState(true);
+  const [noteInternal, setNoteInternal] = useState(false);
+  const [noteResolution, setNoteResolution] = useState(false);
+
+  // Time Details
+  const [activeTab, setActiveTab] = useState<"time" | "expenses">("time");
+  const [startTime, setStartTime] = useState(nowTimeStr());
+  const [endTime, setEndTime] = useState("");
+  const [deduct, setDeduct] = useState("");
+  const [actualHrs, setActualHrs] = useState("0.00");
+  const [workType, setWorkType] = useState("Remote");
+  const [billable, setBillable] = useState("Billable");
+  const [notesContent, setNotesContent] = useState("");
+  const [shortDescription, setShortDescription] = useState("");
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  // Email section
+  const [emailFrom, setEmailFrom] = useState("");
+  const [emailContact, setEmailContact] = useState(true);
+  const [emailContactName, setEmailContactName] = useState("");
+  const [emailResources, setEmailResources] = useState(false);
+  const [emailCc, setEmailCc] = useState(false);
+  const [emailBundled, setEmailBundled] = useState(false);
+
+  // WhatsApp section
+  const [waCountryCode, setWaCountryCode] = useState("+91");
+  const [waPhone, setWaPhone] = useState("");
+  const [waMessage, setWaMessage] = useState("");
+  const [waAutoSync, setWaAutoSync] = useState(true);
+
+  /* ── Firestore load ── */
+  const monday = getMonday(new Date());
+  const weekStart = formatDate(monday);
+  const weekEnd = formatDate(new Date(monday.getTime() + 6 * 86400000));
+
+  useEffect(() => { loadData(); }, [user]);
+
+  async function loadData() {
+    if (!user) return;
+    setLoading(true);
+    try {
+      console.log("[Timesheet] Loading data for user:", user.uid, "weekStart:", weekStart);
+      
+      // First, get or create timesheet
+      const tsQuery = query(
+        collection(db, "timesheets"),
+        where("userId", "==", user.uid),
+        where("weekStart", "==", weekStart)
+      );
+      const tsSnap = await getDocs(tsQuery);
+      
+      let ts: any;
+      if (tsSnap.empty) {
+        console.log("[Timesheet] Creating new timesheet");
+        const ref = await addDoc(collection(db, "timesheets"), {
+          userId: user.uid, weekStart, weekEnd, status: "Draft",
+          totalHours: 0, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+        });
+        ts = { id: ref.id, userId: user.uid, weekStart, weekEnd, status: "Draft", totalHours: 0 };
+      } else {
+        console.log("[Timesheet] Found existing timesheet");
+        ts = { id: tsSnap.docs[0].id, ...tsSnap.docs[0].data() };
+      }
+      setTimesheet(ts);
+
+      // Then fetch time cards
+      const cardsQuery = query(collection(db, "timeCards"), where("timesheetId", "==", ts.id));
+      const cardsSnap = await getDocs(cardsQuery);
+      
+      const cards = cardsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      cards.sort((a: any, b: any) => (a.entryDate || "").localeCompare(b.entryDate || ""));
+      console.log("[Timesheet] Loaded", cards.length, "time cards for timesheet", ts.id);
+      setTimeCards(cards);
+    } catch (e) { 
+      console.error("[Timesheet] Error loading data:", e);
+    } finally {
+      // Pre-fill user info
+      setEmailFrom(profile?.name || user?.email || "");
+      setEmailContactName(profile?.name || "");
+      setLoading(false);
+      console.log("[Timesheet] Loading completed, loading state set to false");
+    }
+  }
+
+  /* ── Auto-sync notes → WhatsApp ── */
+  useEffect(() => {
+    if (waAutoSync) setWaMessage(notesContent);
+  }, [notesContent, waAutoSync]);
+
+  const handleEditorInput = useCallback(() => {
+    if (editorRef.current) {
+      setNotesContent(editorRef.current.innerText || "");
+    }
+  }, []);
+
+  /* ── Save entry ── */
+  async function saveEntry() {
+    if (!user || !timesheet) {
+      console.warn("[Timesheet] Cannot save: user or timesheet missing", { user: !!user, timesheet: !!timesheet });
+      return;
+    }
+    setSaving(true);
+    console.log("[Timesheet] Saving entry...", { timesheetId: timesheet.id, entryDate, startTime, endTime, actualHrs, workType, billable });
+    try {
+      const data: any = {
+        timesheetId: timesheet.id,
+        userId: user.uid,
+        entryDate,
+        task: workType,
+        hoursWorked: parseFloat(actualHrs) || 0,
+        description: notesContent,
+        shortDescription,
+        startTime,
+        endTime,
+        deduct: parseFloat(deduct) || 0,
+        workType,
+        billable,
+        status: "Draft",
+        updatedAt: serverTimestamp(),
+      };
+
+      if (editingCard) {
+        await updateDoc(doc(db, "timeCards", editingCard.id), data);
+        console.log("[Timesheet] Updated existing card:", editingCard.id);
+      } else {
+        const newRef = await addDoc(collection(db, "timeCards"), { ...data, createdAt: serverTimestamp() });
+        console.log("[Timesheet] Created new card:", newRef.id);
+      }
+
+      // Recalculate total
+      const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
+      const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
+      await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
+      console.log("[Timesheet] Total hours updated:", total);
+
+      setEditingCard(null);
+      resetTimeFields();
+      await loadData();
+    } catch (e) {
+      console.error("[Timesheet] Save failed:", e);
+      alert("Failed to save time entry. Check console for details.");
+    }
+    setSaving(false);
+  }
+
+  function resetTimeFields() {
+    setStartTime(nowTimeStr());
+    setEndTime("");
+    setDeduct("");
+    setActualHrs("0.00");
+    setShortDescription("");
+    setNotesContent("");
+    if (editorRef.current) editorRef.current.innerHTML = "";
+  }
+
+  function loadCardForEdit(card: any) {
+    setEditingCard(card);
+    setEntryDate(card.entryDate || formatDate(new Date()));
+    setStartTime(card.startTime || "");
+    setEndTime(card.endTime || "");
+    setDeduct(String(card.deduct || ""));
+    setActualHrs(String(card.hoursWorked || "0.00"));
+    setWorkType(card.workType || card.task || "Remote");
+    setBillable(card.billable || "Billable");
+    setShortDescription(card.shortDescription || "");
+    setNotesContent(card.description || "");
+    if (editorRef.current) editorRef.current.innerText = card.description || "";
+  }
+
+  async function deleteEntry(cardId: string) {
+    if (!confirm("Delete this entry?")) return;
+    await deleteDoc(doc(db, "timeCards", cardId));
+    const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
+    const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
+    await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
+    loadData();
+  }
+
+  async function submitTimesheet() {
+    if (!confirm("Submit this timesheet for approval? You won't be able to edit it after.")) return;
+    if (timeCards.length === 0) { alert("Cannot submit an empty timesheet."); return; }
+    await updateDoc(doc(db, "timesheets", timesheet.id), {
+      status: "Submitted", submittedAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+    loadData();
+  }
+
+  function handleSendWhatsApp() {
+    const phone = waCountryCode.replace("+", "") + waPhone.replace(/\D/g, "");
+    const msg = encodeURIComponent(waMessage);
+    window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+  }
+
+  const canEdit = timesheet?.status === "Draft" || timesheet?.status === "Rejected";
+  const weekTotal = timeCards.reduce((s, c) => s + (c.hoursWorked || 0), 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-sn-green border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 max-w-7xl mx-auto">
+
+      {/* ═══ TOP ACTION BAR ═══ */}
+      <div className="flex items-center justify-between bg-white p-3 border border-border rounded-lg shadow-sm">
+        <div className="flex items-center gap-3">
+          <Link to="/timesheet/weekly" className="p-1.5 hover:bg-muted rounded transition-colors" title="Back to Weekly View">
+            <ChevronRight className="w-4 h-4 rotate-180" />
+          </Link>
+          <button className="p-1.5 hover:bg-muted rounded transition-colors" title="New"><Plus className="w-4 h-4" /></button>
+          <button className="p-1.5 hover:bg-muted rounded transition-colors" title="Copy"><Copy className="w-4 h-4" /></button>
+          <button className="p-1.5 hover:bg-muted rounded transition-colors" title="Print"><Printer className="w-4 h-4" /></button>
+          <button className="p-1.5 hover:bg-muted rounded transition-colors" title="Refresh" onClick={() => loadData()}><RefreshCw className="w-4 h-4" /></button>
+          <button
+            onClick={saveEntry}
+            disabled={saving || !canEdit}
+            className="flex items-center gap-2 bg-sn-green text-sn-dark px-4 py-2 rounded font-semibold text-sm hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            <Save className="w-4 h-4" /> Save & Return
+          </button>
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <History className="w-4 h-4" />
+            <select className="bg-transparent border-none outline-none text-sm cursor-pointer">
+              <option>History</option>
+            </select>
+          </div>
+          <button className="p-1.5 hover:bg-muted rounded transition-colors" title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[timesheet?.status] || STATUS_COLORS.Draft}`}>
+            {timesheet?.status || "Draft"}
+          </span>
+          {canEdit && (
+            <button onClick={submitTimesheet} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded font-semibold text-sm hover:bg-blue-700 transition-colors">
+              <Send className="w-4 h-4" /> Submit
+            </button>
+          )}
+        </div>
+      </div>
+
+
+
+      {/* ═══ OVERVIEW SECTION ═══ */}
+      <Section title="Overview" defaultOpen={true}>
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-3">
+            {/* Left Column */}
+            <div className="space-y-3">
+
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Date: <span className="text-red-500">*</span></label>
+                <div className="col-span-2 flex items-center gap-2">
+                  <div className="relative flex-grow">
+                    <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)}
+                      className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 pr-8" />
+                    <CalendarIcon className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                  <label className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                    <input type="checkbox" checked={overnight} onChange={e => setOvernight(e.target.checked)} className="w-3 h-3 accent-sn-green" />
+                    Overnight
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs font-medium text-blue-600">Work Role: <span className="text-red-500">*</span></label>
+                <div className="col-span-2">
+                  <select value={workRole} onChange={e => setWorkRole(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 text-blue-600 font-medium">
+                    {WORK_ROLES.map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs font-medium text-blue-600">Agreement:</label>
+                <div className="col-span-2">
+                  <select value={agreement} onChange={e => setAgreement(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 text-blue-600">
+                    {AGREEMENTS.map(a => <option key={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <div className="col-span-2">
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <input type="checkbox" checked={enterTimeRecord} onChange={e => setEnterTimeRecord(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+                    Enter Time Record
+                  </label>
+                </div>
+                <div className="text-right">
+                  <button className="text-xs font-bold text-sn-dark hover:underline">Mark as Done</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Name of the Employee: <span className="text-red-500">*</span></label>
+                <div className="col-span-2">
+                  <input readOnly value={profile?.name || user?.email || ""} className="w-full p-1.5 bg-muted/20 border border-border rounded text-xs h-8" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Location: <span className="text-red-500">*</span></label>
+                <div className="col-span-2">
+                  <select value={location} onChange={e => setLocation(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                    {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Groups:</label>
+                <div className="col-span-2">
+                  <select value={groups} onChange={e => setGroups(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                    {GROUPS.map(g => <option key={g}>{g}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Ticket Status: <span className="text-red-500">*</span></label>
+                <div className="col-span-2">
+                  <select value={ticketStatus} onChange={e => setTicketStatus(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                    {TICKET_STATUSES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-3">
+                <label className="text-xs text-muted-foreground font-medium">Add notes to:</label>
+                <div className="col-span-2 flex items-center gap-4">
+                  <label className="flex items-center gap-1 text-xs cursor-pointer">
+                    <input type="checkbox" checked={noteDiscussion} onChange={e => setNoteDiscussion(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+                    Discussion
+                  </label>
+                  <label className="flex items-center gap-1 text-xs cursor-pointer">
+                    <input type="checkbox" checked={noteInternal} onChange={e => setNoteInternal(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+                    Internal
+                  </label>
+                  <label className="flex items-center gap-1 text-xs cursor-pointer">
+                    <input type="checkbox" checked={noteResolution} onChange={e => setNoteResolution(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+                    Resolution
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ TIME DETAILS SECTION ═══ */}
+      <Section
+        title="Time Details"
+        defaultOpen={true}
+        headerRight={
+          canEdit ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); resetTimeFields(); setEditingCard(null); }}
+              className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide hover:bg-blue-700 transition-colors"
+            >
+              ADD ANOTHER TIME ENTRY
+            </button>
+          ) : null
+        }
+      >
+        <div className="px-5 pt-0 pb-5">
+          {/* Tabs */}
+          <div className="flex border-b border-border mb-4">
+            <button
+              onClick={() => setActiveTab("time")}
+              className={`px-4 py-2.5 text-sm font-semibold transition-colors border-b-2 -mb-px ${activeTab === "time" ? "border-blue-600 text-blue-600" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            >
+              Time
+            </button>
+            <button
+              onClick={() => setActiveTab("expenses")}
+              className={`px-4 py-2.5 text-sm font-semibold transition-colors border-b-2 -mb-px ${activeTab === "expenses" ? "border-blue-600 text-blue-600" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            >
+              Expenses
+            </button>
+          </div>
+
+          {activeTab === "time" && (
+            <div className="space-y-4">
+              {/* Time Fields Row */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Start Time: <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <input type="text" value={startTime} onChange={e => setStartTime(e.target.value)}
+                      placeholder="7:00 AM"
+                      className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 pr-8" />
+                    <Clock className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">End Time:</label>
+                  <div className="relative">
+                    <input type="text" value={endTime} onChange={e => setEndTime(e.target.value)}
+                      placeholder=""
+                      className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 pr-8" />
+                    <Clock className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Actual Hrs:</label>
+                  <input type="text" value={actualHrs} onChange={e => setActualHrs(e.target.value)}
+                    className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Work Type: <span className="text-red-500">*</span></label>
+                  <select value={workType} onChange={e => setWorkType(e.target.value)}
+                    className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                    {WORK_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Billable: <span className="text-red-500">*</span></label>
+                  <select value={billable} onChange={e => setBillable(e.target.value)}
+                    className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                    {BILLABLE_OPTIONS.map(b => <option key={b}>{b}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Short Description */}
+              <div>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Short Description:</label>
+                <input type="text" value={shortDescription} onChange={e => setShortDescription(e.target.value)}
+                  placeholder="Brief description of work done..."
+                  className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8" />
+              </div>
+
+              {/* Notes Editor */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-xs text-muted-foreground font-medium">Notes:</label>
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
+                <div className="border border-border rounded-lg overflow-hidden">
+                  <div
+                    ref={editorRef}
+                    contentEditable={canEdit}
+                    onInput={handleEditorInput}
+                    className="min-h-[200px] p-3 text-sm outline-none focus:ring-1 focus:ring-inset focus:ring-sn-green bg-white"
+                    data-placeholder="Enter notes..."
+                    suppressContentEditableWarning
+                  />
+                  <RichTextToolbar editorRef={editorRef} />
+                </div>
+              </div>
+
+              {/* Add Internal Time Note */}
+              <button className="text-sm font-bold text-sn-dark hover:underline">
+                Add Internal Time Note
+              </button>
+
+              {/* Existing Time Entries */}
+              {timeCards.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Saved Entries ({timeCards.length})</h4>
+                  <div className="border border-border rounded-lg overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-muted/30 text-xs font-bold uppercase text-muted-foreground border-b border-border">
+                          <th className="p-2">Date</th>
+                          <th className="p-2">Start</th>
+                          <th className="p-2">End</th>
+                          <th className="p-2">Hours</th>
+                          <th className="p-2">Work Type</th>
+                          <th className="p-2">Billable</th>
+                          <th className="p-2">Notes</th>
+                          <th className="p-2">Short Description</th>
+                          <th className="p-2 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {timeCards.map(card => (
+                          <tr key={card.id} className="border-b border-border hover:bg-muted/10 text-xs">
+                            <td className="p-2">{card.entryDate}</td>
+                            <td className="p-2">{card.startTime || "-"}</td>
+                            <td className="p-2">{card.endTime || "-"}</td>
+                            <td className="p-2 font-bold">{(card.hoursWorked || 0).toFixed(2)}</td>
+                            <td className="p-2">{card.workType || card.task || "-"}</td>
+                            <td className="p-2">{card.billable || "-"}</td>
+                            <td className="p-2 max-w-[200px] truncate">{card.description || "-"}</td>
+                            <td className="p-2 max-w-[200px] truncate">{card.shortDescription || "–"}</td>
+                            <td className="p-2">
+                              {canEdit && (
+                                <div className="flex gap-1">
+                                  <button onClick={() => loadCardForEdit(card)} className="p-1 hover:bg-muted rounded" title="Edit">
+                                    <FileText className="w-3 h-3" />
+                                  </button>
+                                  <button onClick={() => deleteEntry(card.id)} className="p-1 hover:bg-red-100 text-red-500 rounded" title="Delete">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "expenses" && (
+            <div className="py-8 text-center text-muted-foreground text-sm italic">
+              No expenses recorded for this timesheet.
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* ═══ SEND NOTES AS EMAIL ═══ */}
+      <Section title="Send Notes as Email" icon={<Mail className="w-4 h-4 text-blue-600" />} defaultOpen={false}>
+        <div className="p-5 space-y-3">
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">From:</label>
+            <div className="col-span-5 text-sm">{emailFrom}</div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Contact:</label>
+            <div className="col-span-5 flex items-center gap-2">
+              <input type="checkbox" checked={emailContact} onChange={e => setEmailContact(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+              <span className="text-sm">{emailContactName || "N/A"}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Resources:</label>
+            <div className="col-span-5 flex items-center gap-2">
+              <input type="checkbox" checked={emailResources} onChange={e => setEmailResources(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+              <span className="text-sm">{profile?.name || ""}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Cc:</label>
+            <div className="col-span-5 flex items-center gap-2">
+              <input type="checkbox" checked={emailCc} onChange={e => setEmailCc(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+              {emailCc && (
+                <select className="flex-grow p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
+                  <option value="">Select recipients...</option>
+                </select>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Bundled Tickets:</label>
+            <div className="col-span-5 flex items-center gap-2">
+              <input type="checkbox" checked={emailBundled} onChange={e => setEmailBundled(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Attachments:</label>
+            <div className="col-span-5 flex items-center gap-3">
+              <input type="file" className="text-xs" />
+              <span className="text-xs text-muted-foreground">or <button className="text-blue-600 hover:underline font-medium">Paste from Clipboard</button></span>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ SEND NOTES AS WHATSAPP ═══ */}
+      <Section
+        title="Send Notes as WhatsApp"
+        icon={<MessageCircle className="w-4 h-4 text-[#25D366]" />}
+        accentColor="text-[#25D366]"
+        defaultOpen={false}
+      >
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">To:</label>
+            <div className="col-span-5 flex items-center gap-2">
+              <select value={waCountryCode} onChange={e => setWaCountryCode(e.target.value)}
+                className="p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 w-20">
+                <option value="+91">+91</option>
+                <option value="+1">+1</option>
+                <option value="+44">+44</option>
+                <option value="+61">+61</option>
+                <option value="+971">+971</option>
+              </select>
+              <input type="tel" value={waPhone} onChange={e => setWaPhone(e.target.value)}
+                placeholder="Phone number"
+                className="flex-grow p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8" />
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-start gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-2">Message:</label>
+            <div className="col-span-5">
+              <textarea
+                value={waMessage}
+                onChange={e => { setWaMessage(e.target.value); setWaAutoSync(false); }}
+                rows={5}
+                className="w-full p-2 border border-border rounded text-sm outline-none focus:ring-1 focus:ring-sn-green resize-none"
+                placeholder="Message will auto-populate from Notes..."
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {waAutoSync ? "✓ Auto-synced with Notes" : "Manual mode — "}
+                {!waAutoSync && (
+                  <button onClick={() => { setWaAutoSync(true); setWaMessage(notesContent); }} className="text-blue-600 hover:underline">Re-sync</button>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-6 items-center gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1">Attachments:</label>
+            <div className="col-span-5 flex items-center gap-3">
+              <input type="file" className="text-xs" />
+              <span className="text-xs text-muted-foreground">or <button className="text-blue-600 hover:underline font-medium">Paste from Clipboard</button></span>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={handleSendWhatsApp}
+              disabled={!waPhone}
+              className="flex items-center gap-2 px-5 py-2.5 rounded font-semibold text-sm text-white transition-colors disabled:opacity-50"
+              style={{ backgroundColor: "#25D366" }}
+            >
+              <MessageCircle className="w-4 h-4" /> Send WhatsApp
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ QUICK STATS FOOTER ═══ */}
+      <div className="grid grid-cols-4 gap-4">
+        {[
+          { label: "Week Total", value: `${weekTotal.toFixed(2)} hrs`, color: "text-sn-dark" },
+          { label: "Daily Average", value: `${(weekTotal / 7).toFixed(2)} hrs`, color: "text-blue-600" },
+          { label: "Entries", value: timeCards.length, color: "text-purple-600" },
+          { label: "Status", value: timesheet?.status || "Draft", color: timesheet?.status === "Approved" ? "text-green-600" : timesheet?.status === "Rejected" ? "text-red-600" : "text-gray-700" },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-lg border border-border p-4">
+            <div className="text-xs text-muted-foreground uppercase font-bold tracking-wide">{s.label}</div>
+            <div className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
