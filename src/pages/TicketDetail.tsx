@@ -286,19 +286,19 @@ export function TicketDetail() {
             <SLATimer 
               label="Resp SLA" 
               deadline={ticket.responseDeadline} 
-              metAt={ticket.firstResponseAt} 
-              isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+              metAt={ticket.firstResponseAt || (editedTicket.status !== "New" ? new Date().toISOString() : undefined)} 
+              isPaused={editedTicket.status === "On Hold" || editedTicket.status === "Waiting for Customer"}
               onHoldStart={ticket.onHoldStart}
               totalPausedTime={ticket.totalPausedTime}
             />
             <SLATimer 
               label="Res SLA" 
               deadline={ticket.resolutionDeadline} 
-              metAt={ticket.resolvedAt} 
-              isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
+              metAt={ticket.resolvedAt || (editedTicket.status === "Resolved" || editedTicket.status === "Closed" ? new Date().toISOString() : undefined)} 
+              isPaused={editedTicket.status === "On Hold" || editedTicket.status === "Waiting for Customer"}
               onHoldStart={ticket.onHoldStart}
               totalPausedTime={ticket.totalPausedTime}
-              waitUntil={ticket.firstResponseAt ?? null}
+              waitUntil={ticket.firstResponseAt || (editedTicket.status !== "New" ? new Date().toISOString() : null)}
             />
           </div>
           <div className="flex items-center gap-2">
