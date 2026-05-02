@@ -94,7 +94,6 @@ export function Sidebar() {
         { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },
         { icon: Clock, label: "My Timesheet", path: "/timesheet" },
         { icon: BarChart2, label: "Timesheet Reports", path: "/timesheet/reports" },
-        { icon: CheckCircle2, label: "Approved Timesheet", path: "/timesheet/reports?status=Approved" },
       ]
     },
     {
@@ -109,7 +108,6 @@ export function Sidebar() {
       items: [
         { icon: ShoppingCart, label: "Service Catalog", path: "/catalog" },
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
-        { icon: HelpCircle, label: "My Approvals & Requests", path: "/approvals" },
         { icon: Clock, label: "SLA Policies", path: "/sla" },
         { icon: History, label: "System Activity Log", path: "/history" },
       ]
@@ -123,7 +121,6 @@ export function Sidebar() {
         { icon: UserMinus, label: "Open - Unassigned", path: "/tickets?filter=unassigned" },
         { icon: CheckCircle2, label: "Resolved Incidents", path: "/tickets?filter=resolved" },
         { icon: List, label: "All Incidents", path: "/tickets" },
-        { icon: CheckCircle2, label: "Approved Tickets", path: "/approved-tickets" },
         { icon: Map, label: "Critical Incidents Map", path: "/reports" },
       ]
     },
@@ -142,7 +139,6 @@ export function Sidebar() {
         { icon: KeyRound, label: "Access Control", path: "/access-control" },
         { icon: Users, label: "Group Management", path: "/groups" },
         { icon: Settings2, label: "System Settings", path: "/settings" },
-        { icon: ClipboardList, label: "Timesheet Approvals", path: "/timesheet/approvals" },
       ]
     }
   ];
