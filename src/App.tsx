@@ -309,6 +309,14 @@ function AppBody() {
             }
           />
           <Route
+            path="/companies/:id"
+            element={
+              <ProtectedRoute>
+                <Companies />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/timesheet-approvals"
             element={
               <ProtectedRoute>
