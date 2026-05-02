@@ -141,22 +141,39 @@ export function TicketDetail() {
         }
       }
 
-      const response = await fetch(`/api/tickets/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates)
-      });
+      // Calculate points if resolving
+      let pointsAwarded = 0;
+      if (isResolved && !ticket.resolvedAt && ticket.resolutionDeadline) {
+        const deadline = new Date(ticket.resolutionDeadline).getTime();
+        const resolvedAtMs = new Date().getTime();
+        const createdAtMs = ticket.createdAt?.seconds ? ticket.createdAt.seconds * 1000 : (typeof ticket.createdAt === 'string' ? new Date(ticket.createdAt).getTime() : 0);
+        
+        if (createdAtMs > 0 && resolvedAtMs < deadline) {
+          const totalSla = deadline - createdAtMs;
+          const timeSaved = deadline - resolvedAtMs;
+          pointsAwarded = Math.round((timeSaved / totalSla) * 100);
+          if (pointsAwarded < 10) pointsAwarded = 10;
+        } else {
+          pointsAwarded = 5;
+        }
+      }
 
-      const result = await response.json();
+      const ticketRef = doc(db, "tickets", id);
+      const finalUpdates = {
+        ...updates,
+        points: pointsAwarded > 0 ? (ticket.points || 0) + pointsAwarded : (ticket.points || 0)
+      };
 
-      if (result.pointsAwarded > 0) {
+      await updateDoc(ticketRef, finalUpdates);
+
+      if (pointsAwarded > 0) {
         confetti({
           particleCount: 150,
           spread: 70,
           origin: { y: 0.6 },
           colors: ["#22c55e", "#fbbf24", "#3b82f6"]
         });
-        alert(`Great job! Ticket resolved. You earned ${result.pointsAwarded} points! 🏆`);
+        alert(`Great job! Ticket resolved. You earned ${pointsAwarded} points! 🏆`);
       } else {
         alert("Incident updated successfully");
       }
