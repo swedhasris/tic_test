@@ -3,7 +3,7 @@ import {
   ChevronUp, ChevronDown, Clock, Calendar as CalendarIcon, Plus, Save,
   RotateCcw, History, Trash2, Bold, Italic, Underline, List, ListOrdered,
   Paperclip, Link2, Image, Mic, CheckSquare, Mail, Send, Phone,
-  MessageCircle, ChevronRight, FileText, Copy, Printer, RefreshCw
+  MessageCircle, ChevronRight, FileText, Copy, Printer, RefreshCw, Ticket
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/firebase";
@@ -11,7 +11,7 @@ import {
   collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
   doc, serverTimestamp, orderBy, onSnapshot
 } from "firebase/firestore";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 
 /* ─── constants ─── */
 const STATUS_COLORS: Record<string, string> = {
@@ -172,7 +172,12 @@ export function Timesheet() {
   const [waMessage, setWaMessage] = useState("");
   const [waAutoSync, setWaAutoSync] = useState(true);
 
+  // Assigned tickets
+  const [assignedTickets, setAssignedTickets] = useState<any[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+
   const { weekStart: urlWeekStart } = useParams();
+  const navigate = useNavigate();
 
   /* ── Firestore load ── */
   const monday = getMonday(new Date());
@@ -180,6 +185,27 @@ export function Timesheet() {
   const weekEnd = formatDate(new Date(new Date(weekStart).getTime() + 6 * 86400000));
 
   useEffect(() => { loadData(); }, [user, weekStart]);
+
+  /* ── Fetch assigned tickets ── */
+  useEffect(() => {
+    if (!user) return;
+    setTicketsLoading(true);
+    const q = query(
+      collection(db, "tickets"),
+      where("assignedTo", "==", user.uid),
+      where("status", "not-in", ["Resolved", "Closed"]),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tickets = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAssignedTickets(tickets);
+      setTicketsLoading(false);
+    }, (error) => {
+      console.error("Error fetching assigned tickets:", error);
+      setTicketsLoading(false);
+    });
+    return unsubscribe;
+  }, [user]);
 
   async function loadData() {
     if (!user) return;
@@ -390,107 +416,48 @@ export function Timesheet() {
 
 
 
-      {/* ═══ OVERVIEW SECTION ═══ */}
-      <Section title="Overview" defaultOpen={true}>
+      {/* ═══ ASSIGNED TICKETS SECTION ═══ */}
+      <Section title="Assigned Tickets" icon={<Ticket className="w-4 h-4" />} defaultOpen={true}>
         <div className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-3">
-            {/* Left Column */}
+          {ticketsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-6 h-6 border-2 border-sn-green border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : assignedTickets.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              No tickets assigned to you
+            </div>
+          ) : (
             <div className="space-y-3">
-
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Date: <span className="text-red-500">*</span></label>
-                <div className="col-span-2 flex items-center gap-2">
-                  <div className="relative flex-grow">
-                    <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)}
-                      className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 pr-8" />
-                    <CalendarIcon className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              {assignedTickets.map((ticket) => (
+                <div
+                  key={ticket.id}
+                  onClick={() => navigate(`/tickets/${ticket.id}`)}
+                  className="flex items-center gap-4 p-3 border border-border rounded-lg hover:bg-muted/30 cursor-pointer transition-colors"
+                >
+                  <div className="flex-shrink-0">
+                    <Ticket className="w-5 h-5 text-sn-green" />
                   </div>
-                  <label className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
-                    <input type="checkbox" checked={overnight} onChange={e => setOvernight(e.target.checked)} className="w-3 h-3 accent-sn-green" />
-                    Overnight
-                  </label>
+                  <div className="flex-grow min-w-0">
+                    <div className="font-semibold text-sm truncate">{ticket.title || ticket.ticketNumber}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {ticket.ticketNumber} · {ticket.category} · {ticket.status}
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      ticket.priority?.includes("1") ? "bg-red-100 text-red-700" :
+                      ticket.priority?.includes("2") ? "bg-orange-100 text-orange-700" :
+                      ticket.priority?.includes("3") ? "bg-yellow-100 text-yellow-700" :
+                      "bg-gray-100 text-gray-700"
+                    }`}>
+                      {ticket.priority || "4 - Low"}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs font-medium text-blue-600">Work Role: <span className="text-red-500">*</span></label>
-                <div className="col-span-2">
-                  <select value={workRole} onChange={e => setWorkRole(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 text-blue-600 font-medium">
-                    {WORK_ROLES.map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs font-medium text-blue-600">Agreement:</label>
-                <div className="col-span-2">
-                  <select value={agreement} onChange={e => setAgreement(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 text-blue-600">
-                    {AGREEMENTS.map(a => <option key={a}>{a}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <div className="col-span-2">
-                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                    <input type="checkbox" checked={enterTimeRecord} onChange={e => setEnterTimeRecord(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
-                    Enter Time Record
-                  </label>
-                </div>
-                <div className="text-right">
-                  <button className="text-xs font-bold text-sn-dark hover:underline">Mark as Done</button>
-                </div>
-              </div>
+              ))}
             </div>
-
-            {/* Right Column */}
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Name of the Employee: <span className="text-red-500">*</span></label>
-                <div className="col-span-2">
-                  <input readOnly value={profile?.name || user?.email || ""} className="w-full p-1.5 bg-muted/20 border border-border rounded text-xs h-8" />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Location: <span className="text-red-500">*</span></label>
-                <div className="col-span-2">
-                  <select value={location} onChange={e => setLocation(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
-                    {LOCATIONS.map(l => <option key={l}>{l}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Groups:</label>
-                <div className="col-span-2">
-                  <select value={groups} onChange={e => setGroups(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
-                    {GROUPS.map(g => <option key={g}>{g}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Ticket Status: <span className="text-red-500">*</span></label>
-                <div className="col-span-2">
-                  <select value={ticketStatus} onChange={e => setTicketStatus(e.target.value)} className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
-                    {TICKET_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-3">
-                <label className="text-xs text-muted-foreground font-medium">Add notes to:</label>
-                <div className="col-span-2 flex items-center gap-4">
-                  <label className="flex items-center gap-1 text-xs cursor-pointer">
-                    <input type="checkbox" checked={noteDiscussion} onChange={e => setNoteDiscussion(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
-                    Discussion
-                  </label>
-                  <label className="flex items-center gap-1 text-xs cursor-pointer">
-                    <input type="checkbox" checked={noteInternal} onChange={e => setNoteInternal(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
-                    Internal
-                  </label>
-                  <label className="flex items-center gap-1 text-xs cursor-pointer">
-                    <input type="checkbox" checked={noteResolution} onChange={e => setNoteResolution(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
-                    Resolution
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </Section>
 

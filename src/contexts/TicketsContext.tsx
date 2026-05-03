@@ -47,19 +47,9 @@ export function TicketsProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     const ticketsRef = collection(db, "tickets");
-    
-    let q;
-    const isAgent = profile.role === "agent" || profile.role === "admin" || profile.role === "super_admin" || profile.role === "ultra_super_admin";
-    
-    if (isAgent) {
-      q = query(ticketsRef, where("status", "not-in", ["Resolved", "Closed"]));
-    } else {
-      q = query(
-        ticketsRef, 
-        where("createdBy", "==", user.uid),
-        where("status", "not-in", ["Resolved", "Closed"])
-      );
-    }
+
+    // All users (including regular users) see all open tickets
+    const q = query(ticketsRef, where("status", "not-in", ["Resolved", "Closed"]));
 
     const unsubscribe = onSnapshot(
       q,

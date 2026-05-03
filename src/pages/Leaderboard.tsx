@@ -128,30 +128,25 @@ export function Leaderboard() {
           stat.breachedCount += 1;
         }
 
-        // --- ADVANCED SLA SCORING (Matches TicketDetail.tsx) ---
+        // --- SIMPLE SLA SCORING: 1 hour = 1 point × Priority Multiplier ---
         let ticketScore = 0;
 
-        // 1. Priority Base Points
+        // Priority multiplier
         const priorityStr = data.priority || "4 - Low";
-        let basePoints = 10;
-        if (priorityStr.includes("1")) basePoints = 100;
-        else if (priorityStr.includes("2")) basePoints = 50;
-        else if (priorityStr.includes("3")) basePoints = 25;
-        ticketScore += basePoints;
+        let priorityMultiplier = 1;
+        if (priorityStr.includes("1")) priorityMultiplier = 2;      // Critical: 2x
+        else if (priorityStr.includes("2")) priorityMultiplier = 1.5; // High: 1.5x
+        else if (priorityStr.includes("3")) priorityMultiplier = 1;   // Medium: 1x
+        else priorityMultiplier = 0.5;                                // Low: 0.5x
 
-        // 2. Response Bonus
-        if (data.responseSlaStatus === "Completed") {
-          ticketScore += 50;
+        // Base points: resolution hours × priority multiplier
+        ticketScore = Math.round(resolutionHours * priorityMultiplier);
+
+        // Breach penalty: 50% reduction if SLA was breached
+        if (isBreached) {
+          ticketScore = Math.round(ticketScore * 0.5);
         }
 
-        // 3. Resolution Speed Bonus
-        if (isOnTime && !isBreached) {
-          const speedBonus = Math.round(( (slaTargetHours - resolutionHours) / slaTargetHours ) * 100);
-          ticketScore += Math.max(speedBonus, 10);
-        } else if (isBreached) {
-          ticketScore = Math.round(ticketScore * 0.5); // Penalty
-        }
-        
         stat.slaScore += ticketScore;
 
         // Track fastest resolution

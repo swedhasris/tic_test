@@ -195,14 +195,9 @@ export function Tickets() {
     if (!user || !profile) return;
 
     const ticketsRef = collection(db, "tickets");
-    const isAgent = ROLE_HIERARCHY[profile?.role as Role] >= ROLE_HIERARCHY["agent"];
-    
+
+    // All users (including regular users) see all open tickets
     let q = query(ticketsRef, orderBy("createdAt", "desc"));
-    
-    // If not agent, only see created by me (enforced by rules too)
-    if (!isAgent) {
-      q = query(ticketsRef, where("createdBy", "==", user.uid), orderBy("createdAt", "desc"));
-    }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const ticketsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
