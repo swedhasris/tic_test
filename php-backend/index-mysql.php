@@ -51,10 +51,37 @@ $userModel = new UserModel();
 $assetModel = new AssetModel();
 $knowledgeModel = new KnowledgeModel();
 $notificationModel = new NotificationModel();
+$categoryModel = new CategoryModel();
+$subcategoryModel = new SubcategoryModel();
+$providerModel = new ProviderModel();
+$groupModel = new GroupModel();
 
 /**
  * API Routes
  */
+
+// Dropdown APIs
+if ($path === '/api/categories' && $method === 'GET') { jsonResponse(200, $categoryModel->getAll()); }
+if ($path === '/api/subcategories' && $method === 'GET') { jsonResponse(200, $subcategoryModel->getAll()); }
+if ($path === '/api/providers' && $method === 'GET') { jsonResponse(200, $providerModel->getAll()); }
+if ($path === '/api/groups' && $method === 'GET') { jsonResponse(200, $groupModel->getAll()); }
+if (preg_match('#^/api/groups/(\d+)/members$#', $path, $matches) && $method === 'GET') {
+    jsonResponse(200, $groupModel->getMembers((int)$matches[1]));
+}
+
+// Creation APIs
+if ($path === '/api/categories' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($categoryModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
+if ($path === '/api/subcategories' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($subcategoryModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
+if ($path === '/api/providers' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($providerModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
 
 // 1. Health Check
 if ($path === '/api/health' && $method === 'GET') {

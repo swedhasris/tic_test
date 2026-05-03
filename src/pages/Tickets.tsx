@@ -120,11 +120,17 @@ export function Tickets() {
 
   const [assignedTo, setAssignedTo] = useState("");
   const [slaPolicies, setSlaPolicies] = useState<any[]>([]);
+  // INDEPENDENT DROPDOWNS
   const visibleCategories = categories.filter((item) => item.status === 'active');
-  const visibleSubcategories = subcategories.filter(s => s.categoryId === newTicket.categoryId && s.status === 'active');
-  const visibleProviders = serviceProviders.filter(p => p.subcategoryId === newTicket.subcategoryId && p.status === 'active');
-  const visibleGroups = groups.filter(g => g.serviceProviderId === newTicket.serviceId && g.status === 'active');
-  const visibleMembers = members.filter(m => m.groupId === newTicket.selectedGroupId && m.status === 'active');
+  const visibleSubcategories = subcategories.filter(s => s.status === 'active');
+  const visibleProviders = serviceProviders.filter(p => p.status === 'active');
+  const visibleGroups = groups.filter(g => g.status === 'active');
+  
+  // DYNAMIC GROUP FILTERING (Requirement: Only users belonging to the selected group)
+  const selectedGroupObj = groups.find(g => g.name === newTicket.assignmentGroup);
+  const visibleMembers = allUsers.filter(u => 
+    selectedGroupObj?.memberIds?.includes(u.id)
+  ); 
 
   useEffect(() => {
     if (!newTicket.categoryId && visibleCategories[0]) {
@@ -136,50 +142,7 @@ export function Tickets() {
     }
   }, [newTicket.categoryId, visibleCategories]);
 
-  useEffect(() => {
-    const firstSub = visibleSubcategories[0];
-    if (newTicket.categoryId && !visibleSubcategories.some(s => s.id === newTicket.subcategoryId)) {
-      setNewTicket(prev => ({
-        ...prev,
-        subcategoryId: firstSub?.id || "",
-        subcategory: firstSub?.name || "",
-        serviceId: "",
-        service: "",
-        assignmentGroup: ""
-      }));
-    }
-  }, [newTicket.categoryId, visibleSubcategories]);
-
-  useEffect(() => {
-    const firstProv = visibleProviders[0];
-    if (newTicket.subcategoryId && !visibleProviders.some(p => p.id === newTicket.serviceId)) {
-      setNewTicket(prev => ({
-        ...prev,
-        serviceId: firstProv?.id || "",
-        service: firstProv?.name || "",
-        serviceProvider: firstProv?.name || "",
-        assignmentGroup: ""
-      }));
-    }
-  }, [newTicket.subcategoryId, visibleProviders]);
-
-  useEffect(() => {
-    const firstGroup = visibleGroups[0];
-    if (newTicket.serviceId && !visibleGroups.some(g => g.name === newTicket.assignmentGroup)) {
-      setNewTicket(prev => ({
-        ...prev,
-        assignmentGroup: firstGroup?.name || "",
-        selectedGroupId: firstGroup?.id || ""
-      }));
-    }
-  }, [newTicket.serviceId, visibleGroups]);
-
-  useEffect(() => {
-    if (visibleMembers.length > 0 && !newTicket.assignedTo) {
-      // Auto-assign to the first member (or logic can be added for Round Robin)
-      setNewTicket(prev => ({ ...prev, assignedTo: visibleMembers[0].userId }));
-    }
-  }, [visibleMembers]);
+  // Removed auto-reset logic for subcategories/providers/groups to maintain independence
 
   useEffect(() => {
     const q = query(collection(db, "sla_policies"), where("isActive", "==", true));
@@ -704,20 +667,11 @@ export function Tickets() {
                       value={newTicket.categoryId}
                       onChange={e => {
                         const category = visibleCategories.find((item) => item.id === e.target.value);
-                        setNewTicket({
-                          ...newTicket,
-                          categoryId: e.target.value,
-                          category: category?.name || "",
-                          subcategoryId: "",
-                          subcategory: "",
-                          serviceId: "",
-                          service: "",
-                          serviceProvider: "",
-                          assignmentGroup: ""
-                        });
+                        setNewTicket({ ...newTicket, categoryId: e.target.value, category: category?.name || "" });
                       }}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8"
                     >
+                      <option value="">-- None --</option>
                       {visibleCategories.map((item) => (
                         <option key={item.id} value={item.id}>{item.name}</option>
                       ))}
@@ -729,15 +683,7 @@ export function Tickets() {
                       value={newTicket.subcategoryId}
                       onChange={e => {
                         const subcategory = visibleSubcategories.find((item) => item.id === e.target.value);
-                        setNewTicket({
-                          ...newTicket,
-                          subcategoryId: e.target.value,
-                          subcategory: subcategory?.name || "",
-                          serviceId: "",
-                          service: "",
-                          serviceProvider: "",
-                          assignmentGroup: ""
-                        });
+                        setNewTicket({ ...newTicket, subcategoryId: e.target.value, subcategory: subcategory?.name || "" });
                       }}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8"
                     >
@@ -753,17 +699,11 @@ export function Tickets() {
                       value={newTicket.serviceId}
                       onChange={e => {
                         const service = visibleProviders.find((item) => item.id === e.target.value);
-                        setNewTicket({
-                          ...newTicket,
-                          serviceId: e.target.value,
-                          service: service?.name || "",
-                          serviceProvider: service?.name || "",
-                          assignmentGroup: ""
-                        });
+                        setNewTicket({ ...newTicket, serviceId: e.target.value, service: service?.name || "", serviceProvider: service?.name || "" });
                       }}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8"
                     >
-                      <option value="">-- Select Service --</option>
+                      <option value="">-- None --</option>
                       {visibleProviders.map((item) => (
                         <option key={item.id} value={item.id}>{item.name}</option>
                       ))}
@@ -820,7 +760,7 @@ export function Tickets() {
                       value={newTicket.assignmentGroup}
                       onChange={e => {
                         const group = visibleGroups.find(g => g.name === e.target.value);
-                        setNewTicket({ ...newTicket, assignmentGroup: e.target.value, selectedGroupId: group?.id || "" });
+                        setNewTicket({...newTicket, assignmentGroup: e.target.value, selectedGroupId: group?.id || "", assignedTo: ""});
                       }}
                       className="col-span-2 p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8"
                     >
@@ -841,7 +781,7 @@ export function Tickets() {
                     >
                       <option value="">-- Select Member --</option>
                       {visibleMembers.map(m => (
-                        <option key={m.id} value={m.userId}>{m.userName}</option>
+                        <option key={m.id} value={m.id}>{m.name || m.userName}</option>
                       ))}
                     </select>
                   </div>

@@ -175,12 +175,12 @@ export function Settings() {
     setTimeout(() => setMessage(null), 5000);
   };
 
-  // Filtered views
+  // Filtered views (NOW INDEPENDENT)
   const activeCategories = useMemo(() => categories.filter(c => c.status === 'active'), [categories]);
-  const activeSubcategories = useMemo(() => subcategories.filter(s => s.categoryId === selectedCatId && s.status === 'active'), [subcategories, selectedCatId]);
-  const activeProviders = useMemo(() => serviceProviders.filter(p => p.subcategoryId === selectedSubId && p.status === 'active'), [serviceProviders, selectedSubId]);
-  const activeGroups = useMemo(() => groups.filter(g => g.serviceProviderId === selectedSrvId && g.status === 'active'), [groups, selectedSrvId]);
-  const activeMembers = useMemo(() => members.filter(m => m.groupId === selectedGroupId && m.status === 'active'), [members, selectedGroupId]);
+  const activeSubcategories = useMemo(() => subcategories.filter(s => s.status === 'active'), [subcategories]);
+  const activeProviders = useMemo(() => serviceProviders.filter(p => p.status === 'active'), [serviceProviders]);
+  const activeGroups = useMemo(() => groups.filter(g => g.status === 'active'), [groups]);
+  const activeMembers = useMemo(() => members.filter(m => m.status === 'active'), [members]);
 
   const handleSeedData = async () => {
     if (!isAdmin || !confirm("This will populate demo hierarchy data. Continue?")) return;
@@ -295,9 +295,9 @@ export function Settings() {
                   icon={Radio} 
                   items={activeSubcategories} 
                   selectedId={selectedSubId} 
-                  disabled={!selectedCatId}
+                  disabled={false}
                   onSelect={(id) => { setSelectedSubId(id); setSelectedSrvId(null); setSelectedGroupId(null); }}
-                  onAdd={() => { setEditingItem({ type: 'Subcategory', data: { categoryId: selectedCatId } }); setIsModalOpen(true); }}
+                  onAdd={() => { setEditingItem({ type: 'Subcategory', data: { } }); setIsModalOpen(true); }}
                   onEdit={(item) => { setEditingItem({ type: 'Subcategory', data: item }); setIsModalOpen(true); }}
                   onDelete={(item) => handleMutation('Subcategory', 'delete', item)}
                   isAdmin={isAdmin}
@@ -307,9 +307,9 @@ export function Settings() {
                   icon={Box} 
                   items={activeProviders} 
                   selectedId={selectedSrvId} 
-                  disabled={!selectedSubId}
+                  disabled={false}
                   onSelect={(id) => { setSelectedSrvId(id); setSelectedGroupId(null); }}
-                  onAdd={() => { setEditingItem({ type: 'Service Provider', data: { subcategoryId: selectedSubId, categoryId: selectedCatId } }); setIsModalOpen(true); }}
+                  onAdd={() => { setEditingItem({ type: 'Service Provider', data: { } }); setIsModalOpen(true); }}
                   onEdit={(item) => { setEditingItem({ type: 'Service Provider', data: item }); setIsModalOpen(true); }}
                   onDelete={(item) => handleMutation('Service Provider', 'delete', item)}
                   isAdmin={isAdmin}
@@ -323,9 +323,9 @@ export function Settings() {
                   icon={Users} 
                   items={activeGroups} 
                   selectedId={selectedGroupId} 
-                  disabled={!selectedSrvId}
+                  disabled={false}
                   onSelect={(id) => setSelectedGroupId(id)}
-                  onAdd={() => { setEditingItem({ type: 'Group', data: { serviceProviderId: selectedSrvId } }); setIsModalOpen(true); }}
+                  onAdd={() => { setEditingItem({ type: 'Group', data: { } }); setIsModalOpen(true); }}
                   onEdit={(item) => { setEditingItem({ type: 'Group', data: item }); setIsModalOpen(true); }}
                   onDelete={(item) => handleMutation('Group', 'delete', item)}
                   isAdmin={isAdmin}
@@ -335,9 +335,9 @@ export function Settings() {
                   icon={UserPlus} 
                   items={activeMembers.map(m => ({ ...m, name: m.userName }))} 
                   selectedId={null} 
-                  disabled={!selectedGroupId}
+                  disabled={false}
                   onSelect={() => {}}
-                  onAdd={() => { setEditingItem({ type: 'Group Member', data: { groupId: selectedGroupId } }); setIsModalOpen(true); }}
+                  onAdd={() => { setEditingItem({ type: 'Group Member', data: { } }); setIsModalOpen(true); }}
                   onEdit={(item) => { setEditingItem({ type: 'Group Member', data: item }); setIsModalOpen(true); }}
                   onDelete={(item) => handleMutation('Group Member', 'delete', item)}
                   isAdmin={isAdmin}
@@ -557,9 +557,6 @@ export function Settings() {
 
               {editingItem.type === 'Subcategory' && (
                 <>
-                  <Select label="Parent Category" name="categoryId" defaultValue={editingItem.data.categoryId} required>
-                    {activeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </Select>
                   <Input label="Sub-Category Name" name="name" defaultValue={editingItem.data.name} required />
                   <Textarea label="Description" name="description" defaultValue={editingItem.data.description} />
                 </>
@@ -567,9 +564,6 @@ export function Settings() {
 
               {editingItem.type === 'Service Provider' && (
                 <>
-                  <Select label="Parent Sub-Category" name="subcategoryId" defaultValue={editingItem.data.subcategoryId} required>
-                    {subcategories.filter(s => s.status === 'active').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </Select>
                   <Input label="Provider Name" name="name" defaultValue={editingItem.data.name} required />
                   <Input label="SLA Commitment" name="sla" defaultValue={editingItem.data.sla} placeholder="e.g. 4h, 12h, 1d" required />
                   <Textarea label="Capability Details" name="description" defaultValue={editingItem.data.description} />
@@ -578,9 +572,6 @@ export function Settings() {
 
               {editingItem.type === 'Group' && (
                 <>
-                  <Select label="Parent Provider" name="serviceProviderId" defaultValue={editingItem.data.serviceProviderId} required>
-                    {serviceProviders.filter(p => p.status === 'active').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </Select>
                   <Input label="Group Name" name="name" defaultValue={editingItem.data.name} required />
                   <Input label="Shift Timing" name="shiftTiming" defaultValue={editingItem.data.shiftTiming} placeholder="e.g. 09:00 - 18:00" />
                   <Select label="Escalation Level" name="escalationLevel" defaultValue={editingItem.data.escalationLevel}>
@@ -594,9 +585,6 @@ export function Settings() {
 
               {editingItem.type === 'Group Member' && (
                 <>
-                  <Select label="Parent Group" name="groupId" defaultValue={editingItem.data.groupId} required>
-                    {groups.filter(g => g.status === 'active').map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </Select>
                   <Select label="Select User" name="userId" defaultValue={editingItem.data.userId} required>
                     {allUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                   </Select>

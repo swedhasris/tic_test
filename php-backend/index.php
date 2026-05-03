@@ -1,11 +1,10 @@
 <?php
 /**
- * PHP Backend Router
- * Replicates the Node.js/Express backend functionality.
+ * PHP Backend Router - MySQL Version
+ * Replaces the Firestore-based backend with MySQL
  */
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/firestore-client.php';
+require_once __DIR__ . '/mysql-client.php';
 
 // CORS headers for API requests
 header('Access-Control-Allow-Origin: *');
@@ -17,16 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Load config if available (Firestore features will be unavailable otherwise)
-$firestoreAvailable = AppConfig::load();
-
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Remove trailing slash for consistency
 $path = rtrim($path, '/') ?: '/';
-
-require_once __DIR__ . '/ai-endpoints.php';
 
 /**
  * Helper to send JSON response.
@@ -51,47 +45,69 @@ function getJsonBody(): ?array {
     return $decoded;
 }
 
-/**
- * Helper: convert Firestore timestamp values to ms for sorting.
- */
-function timestampToMs($value): int {
-    if (!$value) return 0;
-    if (is_string($value)) {
-        $t = strtotime($value);
-        return $t !== false ? $t * 1000 : 0;
-    }
-    if (is_array($value) && isset($value['seconds'])) {
-        return (int) ($value['seconds'] * 1000 + ($value['nanos'] ?? 0) / 1000000);
-    }
-    return 0;
-}
+// Initialize models
+$ticketModel = new TicketModel();
+$userModel = new UserModel();
+$assetModel = new AssetModel();
+$knowledgeModel = new KnowledgeModel();
+$notificationModel = new NotificationModel();
+$categoryModel = new CategoryModel();
+$subcategoryModel = new SubcategoryModel();
+$providerModel = new ProviderModel();
+$groupModel = new GroupModel();
 
 /**
  * API Routes
  */
 
+// Dropdown APIs
+if ($path === '/api/categories' && $method === 'GET') { jsonResponse(200, $categoryModel->getAll()); }
+if ($path === '/api/subcategories' && $method === 'GET') { jsonResponse(200, $subcategoryModel->getAll()); }
+if ($path === '/api/providers' && $method === 'GET') { jsonResponse(200, $providerModel->getAll()); }
+if ($path === '/api/groups' && $method === 'GET') { jsonResponse(200, $groupModel->getAll()); }
+if (preg_match('#^/api/groups/(\d+)/members$#', $path, $matches) && $method === 'GET') {
+    jsonResponse(200, $groupModel->getMembers((int)$matches[1]));
+}
+
+// Creation APIs
+if ($path === '/api/categories' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($categoryModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
+if ($path === '/api/subcategories' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($subcategoryModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
+if ($path === '/api/providers' && $method === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if ($providerModel->create($data['name'])) jsonResponse(201, ['success' => true]);
+}
+
 // 1. Health Check
 if ($path === '/api/health' && $method === 'GET') {
-    jsonResponse(200, ['status' => 'ok']);
+    try {
+        $db = MySQLClient::getConnection();
+        $db->query('SELECT 1');
+        jsonResponse(200, ['status' => 'ok', 'database' => 'mysql', 'timestamp' => date('c')]);
+    } catch (Exception $e) {
+        jsonResponse(500, ['status' => 'error', 'message' => $e->getMessage()]);
+    }
 }
 
 // 2. DB Test
 if ($path === '/api/db-test' && $method === 'GET') {
     try {
-        $client = new FirestoreClient();
-        $docs = $client->listDocuments('tickets');
+        $count = count($ticketModel->getAll());
         jsonResponse(200, [
             'status' => 'connected',
-            'project' => AppConfig::getProjectId(),
-            'database' => AppConfig::getDatabaseId(),
-            'count' => count($docs),
+            'database' => 'connectit_db',
+            'count' => $count,
+            'timestamp' => date('c')
         ]);
     } catch (Exception $e) {
         jsonResponse(500, [
             'status' => 'error',
-            'error' => $e->getMessage(),
-            'project' => AppConfig::getProjectId(),
-            'database' => AppConfig::getDatabaseId(),
+            'error' => $e->getMessage()
         ]);
     }
 }
@@ -99,13 +115,11 @@ if ($path === '/api/db-test' && $method === 'GET') {
 // 3. Get All Tickets
 if ($path === '/api/tickets/all' && $method === 'GET') {
     try {
-        $client = new FirestoreClient();
-        $tickets = $client->listDocuments('tickets');
-        // Sort by createdAt descending in memory
-        usort($tickets, function ($a, $b) {
-            return timestampToMs($b['createdAt'] ?? null) <=> timestampToMs($a['createdAt'] ?? null);
-        });
-        jsonResponse(200, $tickets);
+        $tickets = $ticketModel->getAll();
+        jsonResponse(200, array_map(function($t) {
+            $t['id'] = (string) $t['id'];
+            return $t;
+        }, $tickets));
     } catch (Exception $e) {
         error_log('Failed to fetch tickets: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to fetch tickets']);
@@ -115,16 +129,11 @@ if ($path === '/api/tickets/all' && $method === 'GET') {
 // 4. Get Open Tickets
 if ($path === '/api/tickets/open' && $method === 'GET') {
     try {
-        $client = new FirestoreClient();
-        $tickets = $client->listDocuments('tickets');
-        $open = array_filter($tickets, function ($t) {
-            $status = $t['status'] ?? '';
-            return $status !== 'Resolved' && $status !== 'Closed';
-        });
-        usort($open, function ($a, $b) {
-            return timestampToMs($b['createdAt'] ?? null) <=> timestampToMs($a['createdAt'] ?? null);
-        });
-        jsonResponse(200, array_values($open));
+        $tickets = $ticketModel->getOpen();
+        jsonResponse(200, array_map(function($t) {
+            $t['id'] = (string) $t['id'];
+            return $t;
+        }, $tickets));
     } catch (Exception $e) {
         error_log('Failed to fetch open tickets: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to fetch open tickets']);
@@ -135,15 +144,11 @@ if ($path === '/api/tickets/open' && $method === 'GET') {
 if (preg_match('#^/api/tickets/assigned/(.+)$#', $path, $matches) && $method === 'GET') {
     $userId = $matches[1];
     try {
-        $client = new FirestoreClient();
-        $tickets = $client->listDocuments('tickets');
-        $assigned = array_filter($tickets, function ($t) use ($userId) {
-            return ($t['assignedTo'] ?? '') === $userId;
-        });
-        usort($assigned, function ($a, $b) {
-            return timestampToMs($b['createdAt'] ?? null) <=> timestampToMs($a['createdAt'] ?? null);
-        });
-        jsonResponse(200, array_values($assigned));
+        $tickets = $ticketModel->getAssigned($userId);
+        jsonResponse(200, array_map(function($t) {
+            $t['id'] = (string) $t['id'];
+            return $t;
+        }, $tickets));
     } catch (Exception $e) {
         error_log('Failed to fetch assigned tickets: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to fetch assigned tickets']);
@@ -153,15 +158,11 @@ if (preg_match('#^/api/tickets/assigned/(.+)$#', $path, $matches) && $method ===
 // 6. Get Unassigned Tickets
 if ($path === '/api/tickets/unassigned' && $method === 'GET') {
     try {
-        $client = new FirestoreClient();
-        $tickets = $client->listDocuments('tickets');
-        $unassigned = array_filter($tickets, function ($t) {
-            return ($t['assignedTo'] ?? '') === '';
-        });
-        usort($unassigned, function ($a, $b) {
-            return timestampToMs($b['createdAt'] ?? null) <=> timestampToMs($a['createdAt'] ?? null);
-        });
-        jsonResponse(200, array_values($unassigned));
+        $tickets = $ticketModel->getUnassigned();
+        jsonResponse(200, array_map(function($t) {
+            $t['id'] = (string) $t['id'];
+            return $t;
+        }, $tickets));
     } catch (Exception $e) {
         error_log('Failed to fetch unassigned tickets: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to fetch unassigned tickets']);
@@ -171,20 +172,44 @@ if ($path === '/api/tickets/unassigned' && $method === 'GET') {
 // 7. Get Resolved Tickets
 if ($path === '/api/tickets/resolved' && $method === 'GET') {
     try {
-        $client = new FirestoreClient();
-        $tickets = $client->listDocuments('tickets');
-        $resolved = array_filter($tickets, function ($t) {
-            $status = $t['status'] ?? '';
-            return $status === 'Resolved' || $status === 'Closed';
-        });
-        jsonResponse(200, array_values($resolved));
+        $tickets = $ticketModel->getResolved();
+        jsonResponse(200, array_map(function($t) {
+            $t['id'] = (string) $t['id'];
+            return $t;
+        }, $tickets));
     } catch (Exception $e) {
         error_log('Failed to fetch resolved tickets: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to fetch resolved tickets']);
     }
 }
 
-// 8. Create Ticket
+// 8. Get Single Ticket with Comments
+if (preg_match('#^/api/tickets/([^/]+)$#', $path, $matches) && $method === 'GET') {
+    $id = $matches[1];
+    try {
+        $ticket = $ticketModel->getById((int) $id);
+        if (!$ticket) {
+            jsonResponse(404, ['error' => 'Ticket not found']);
+        }
+        
+        $ticket['id'] = (string) $ticket['id'];
+        $ticket['comments'] = array_map(function($c) {
+            $c['id'] = (string) $c['id'];
+            return $c;
+        }, $ticketModel->getComments((int) $id));
+        $ticket['history'] = array_map(function($h) {
+            $h['id'] = (string) $h['id'];
+            return $h;
+        }, $ticketModel->getHistory((int) $id));
+        
+        jsonResponse(200, $ticket);
+    } catch (Exception $e) {
+        error_log('Failed to fetch ticket: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch ticket']);
+    }
+}
+
+// 9. Create Ticket
 if ($path === '/api/tickets/create' && $method === 'POST') {
     $body = getJsonBody();
     if ($body === null) {
@@ -192,8 +217,6 @@ if ($path === '/api/tickets/create' && $method === 'POST') {
     }
 
     try {
-        $client = new FirestoreClient();
-
         // Auto-assignment based on category
         $assignmentGroup = $body['assignmentGroup'] ?? '';
         if (!$assignmentGroup) {
@@ -206,33 +229,54 @@ if ($path === '/api/tickets/create' && $method === 'POST') {
             }
         }
 
-        $now = gmdate('c'); // ISO8601
-        $caller = $body['caller'] ?? 'System';
+        // Generate ticket number
+        $ticketNumber = 'INC' . strval(rand(1000000, 9999999));
 
-        $ticketData = array_merge($body, [
-            'assignmentGroup' => $assignmentGroup,
-            'createdAt' => ['timestampValue' => 'REQUEST_TIME'],
-            'updatedAt' => ['timestampValue' => 'REQUEST_TIME'],
-            'history' => [
-                [
-                    'action' => 'Ticket Created via API',
-                    'timestamp' => $now,
-                    'user' => $caller,
-                ]
-            ],
-        ]);
+        $ticketData = [
+            'ticket_number' => $ticketNumber,
+            'caller' => $body['caller'] ?? 'System',
+            'category' => $body['category'] ?? 'Inquiry / Help',
+            'title' => $body['title'] ?? 'Untitled',
+            'description' => $body['description'] ?? null,
+            'status' => 'New',
+            'priority' => $body['priority'] ?? '4 - Low',
+            'impact' => $body['impact'] ?? '3 - Low',
+            'urgency' => $body['urgency'] ?? '3 - Low',
+            'channel' => $body['channel'] ?? 'Self-service',
+            'assignment_group' => $assignmentGroup,
+            'assigned_to' => $body['assignedTo'] ?? null,
+            'assigned_to_name' => $body['assignedToName'] ?? null,
+            'created_by' => $body['createdBy'] ?? $body['caller'] ?? 'System',
+            'created_by_name' => $body['createdByName'] ?? $body['caller'] ?? 'System',
+            'service' => $body['service'] ?? null,
+            'service_offering' => $body['serviceOffering'] ?? null,
+            'subcategory' => $body['subcategory'] ?? null
+        ];
+
+        $result = $ticketModel->create($ticketData);
+        
+        // Add creation history
+        $ticketModel->addHistory(
+            (int) $result['id'],
+            'Ticket Created via API',
+            $body['caller'] ?? 'System',
+            $body['createdBy'] ?? null,
+            json_encode($ticketData)
+        );
 
         // Priority notification for high priority
         $priority = $body['priority'] ?? '';
         if ($priority === '1 - Critical' || $priority === '2 - High') {
-            $ticketData['history'][] = [
-                'action' => 'Manager Notified (High Priority)',
-                'timestamp' => $now,
-                'user' => 'System Automation',
-            ];
+            $ticketModel->addHistory(
+                (int) $result['id'],
+                'Manager Notified (High Priority)',
+                'System Automation',
+                null,
+                'High priority ticket created'
+            );
         }
 
-        $result = $client->createDocument('tickets', $ticketData);
+        $result['id'] = (string) $result['id'];
         jsonResponse(200, $result);
     } catch (Exception $e) {
         error_log('Error creating ticket: ' . $e->getMessage());
@@ -240,7 +284,7 @@ if ($path === '/api/tickets/create' && $method === 'POST') {
     }
 }
 
-// 9. Update Ticket
+// 10. Update Ticket
 if (preg_match('#^/api/tickets/([^/]+)$#', $path, $matches) && $method === 'PUT') {
     $id = $matches[1];
     $body = getJsonBody();
@@ -249,24 +293,67 @@ if (preg_match('#^/api/tickets/([^/]+)$#', $path, $matches) && $method === 'PUT'
     }
 
     try {
-        $client = new FirestoreClient();
+        // Get current ticket to calculate points
+        $currentTicket = $ticketModel->getById((int) $id);
+        if (!$currentTicket) {
+            jsonResponse(404, ['error' => 'Ticket not found']);
+        }
+
+        $points = 0;
+        if (($body['status'] === 'Resolved' || $body['status'] === 'Closed') && !$currentTicket['resolved_at']) {
+            if ($currentTicket['resolution_deadline']) {
+                $deadline = strtotime($currentTicket['resolution_deadline']) * 1000;
+                $resolvedAt = time() * 1000;
+                $createdAt = strtotime($currentTicket['created_at']) * 1000;
+
+                if ($resolvedAt < $deadline) {
+                    $totalSla = $deadline - $createdAt;
+                    $timeSaved = $deadline - $resolvedAt;
+                    $points = round(($timeSaved / $totalSla) * 100);
+                    if ($points < 10) $points = 10;
+                } else {
+                    $points = 5;
+                }
+            }
+        }
+
         $updateData = array_merge($body, [
-            'updatedAt' => ['timestampValue' => 'REQUEST_TIME'],
+            'points' => ($currentTicket['points'] ?? 0) + $points,
         ]);
-        $client->updateDocument('tickets', $id, $updateData);
-        jsonResponse(200, array_merge(['id' => $id], $body));
+
+        if ($body['status'] === 'Resolved' || $body['status'] === 'Closed') {
+            $updateData['resolved_at'] = date('Y-m-d H:i:s');
+        }
+
+        $ticketModel->update((int) $id, $updateData);
+
+        // Add history for status change
+        if (isset($body['status']) && $body['status'] !== $currentTicket['status']) {
+            $ticketModel->addHistory(
+                (int) $id,
+                "Status changed to {$body['status']}",
+                $body['updatedBy'] ?? 'System',
+                null,
+                json_encode(['oldStatus' => $currentTicket['status'], 'newStatus' => $body['status']])
+            );
+        }
+
+        $updatedTicket = $ticketModel->getById((int) $id);
+        $updatedTicket['id'] = (string) $updatedTicket['id'];
+        $updatedTicket['pointsAwarded'] = $points;
+        
+        jsonResponse(200, $updatedTicket);
     } catch (Exception $e) {
         error_log('Error updating ticket: ' . $e->getMessage());
         jsonResponse(500, ['error' => 'Failed to update ticket']);
     }
 }
 
-// 10. Delete Ticket
+// 11. Delete Ticket
 if (preg_match('#^/api/tickets/([^/]+)$#', $path, $matches) && $method === 'DELETE') {
     $id = $matches[1];
     try {
-        $client = new FirestoreClient();
-        $client->deleteDocument('tickets', $id);
+        $ticketModel->delete((int) $id);
         jsonResponse(200, ['message' => 'Ticket deleted successfully']);
     } catch (Exception $e) {
         error_log('Error deleting ticket: ' . $e->getMessage());
@@ -274,20 +361,252 @@ if (preg_match('#^/api/tickets/([^/]+)$#', $path, $matches) && $method === 'DELE
     }
 }
 
-// 11. Manual SLA Escalation Trigger
-if ($path === '/api/tickets/trigger-escalation' && $method === 'POST') {
+// 12. Add Comment to Ticket
+if (preg_match('#^/api/tickets/([^/]+)/comments$#', $path, $matches) && $method === 'POST') {
+    $id = $matches[1];
+    $body = getJsonBody();
+    
     try {
-        require_once __DIR__ . '/sla-engine.php';
-        runEscalation();
-        jsonResponse(200, ['message' => 'Escalation check triggered manually']);
+        $ticketModel->addComment(
+            (int) $id,
+            $body['user_id'] ?? null,
+            $body['user_name'] ?? 'Unknown',
+            $body['message'] ?? '',
+            $body['is_internal'] ?? false
+        );
+        
+        jsonResponse(200, ['message' => 'Comment added successfully']);
     } catch (Exception $e) {
-        error_log('Error triggering escalation: ' . $e->getMessage());
-        jsonResponse(500, ['error' => $e->getMessage()]);
+        error_log('Error adding comment: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to add comment']);
     }
 }
 
 /* ============================================================
-   TIMESHEET API ROUTES
+   USER API ROUTES
+   ============================================================ */
+
+// Get all users
+if ($path === '/api/users' && $method === 'GET') {
+    try {
+        $users = $userModel->getAll();
+        jsonResponse(200, array_map(function($u) {
+            $u['id'] = (string) $u['id'];
+            unset($u['password_hash']);
+            return $u;
+        }, $users));
+    } catch (Exception $e) {
+        error_log('Failed to fetch users: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch users']);
+    }
+}
+
+// Get user by UID
+if (preg_match('#^/api/users/(.+)$#', $path, $matches) && $method === 'GET') {
+    $uid = $matches[1];
+    try {
+        $user = $userModel->getByUid($uid);
+        if (!$user) {
+            jsonResponse(404, ['error' => 'User not found']);
+        }
+        $user['id'] = (string) $user['id'];
+        unset($user['password_hash']);
+        jsonResponse(200, $user);
+    } catch (Exception $e) {
+        error_log('Failed to fetch user: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch user']);
+    }
+}
+
+// Create user
+if ($path === '/api/users' && $method === 'POST') {
+    $body = getJsonBody();
+    try {
+        $result = $userModel->create([
+            'uid' => $body['uid'],
+            'email' => $body['email'],
+            'name' => $body['name'],
+            'role' => $body['role'] ?? 'user',
+            'phone' => $body['phone'] ?? null,
+            'password_hash' => $body['password_hash'] ?? null
+        ]);
+        $result['id'] = (string) $result['id'];
+        unset($result['password_hash']);
+        jsonResponse(200, $result);
+    } catch (Exception $e) {
+        error_log('Failed to create user: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to create user']);
+    }
+}
+
+// Update user
+if (preg_match('#^/api/users/(.+)$#', $path, $matches) && $method === 'PUT') {
+    $uid = $matches[1];
+    $body = getJsonBody();
+    try {
+        $user = $userModel->getByUid($uid);
+        if (!$user) {
+            jsonResponse(404, ['error' => 'User not found']);
+        }
+        
+        $userModel->update((int) $user['id'], [
+            'name' => $body['name'] ?? $user['name'],
+            'email' => $body['email'] ?? $user['email'],
+            'role' => $body['role'] ?? $user['role'],
+            'phone' => $body['phone'] ?? $user['phone'],
+            'is_active' => $body['is_active'] ?? $user['is_active']
+        ]);
+        
+        $updated = $userModel->getById((int) $user['id']);
+        $updated['id'] = (string) $updated['id'];
+        unset($updated['password_hash']);
+        jsonResponse(200, $updated);
+    } catch (Exception $e) {
+        error_log('Failed to update user: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to update user']);
+    }
+}
+
+/* ============================================================
+   AUTHENTICATION ROUTES
+   ============================================================ */
+
+// Simple hash function (same as frontend)
+function simpleHash(string $str): string {
+    $hash = 0;
+    for ($i = 0; $i < strlen($str); $i++) {
+        $char = ord($str[$i]);
+        $hash = (($hash << 5) - $hash) + $char;
+        $hash = $hash & $hash;
+    }
+    return 'h_' . abs($hash) . '_' . strlen($str);
+}
+
+if ($path === '/api/auth/login' && $method === 'POST') {
+    $body = getJsonBody();
+    try {
+        $user = $userModel->getByEmail($body['email'] ?? '');
+        
+        if (!$user) {
+            jsonResponse(401, ['error' => 'Invalid email or password']);
+        }
+        
+        if ($user['password_hash'] && $user['password_hash'] !== simpleHash($body['password'] ?? '')) {
+            jsonResponse(401, ['error' => 'Invalid email or password']);
+        }
+        
+        $userModel->updateLastLogin($user['uid']);
+        
+        $user['id'] = (string) $user['id'];
+        unset($user['password_hash']);
+        jsonResponse(200, $user);
+    } catch (Exception $e) {
+        error_log('Login error: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Login failed']);
+    }
+}
+
+/* ============================================================
+   ASSET API ROUTES
+   ============================================================ */
+
+if ($path === '/api/assets' && $method === 'GET') {
+    try {
+        $assets = $assetModel->getAll();
+        jsonResponse(200, array_map(function($a) {
+            $a['id'] = (string) $a['id'];
+            return $a;
+        }, $assets));
+    } catch (Exception $e) {
+        error_log('Failed to fetch assets: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch assets']);
+    }
+}
+
+if ($path === '/api/assets' && $method === 'POST') {
+    $body = getJsonBody();
+    try {
+        $result = $assetModel->create($body);
+        $result['id'] = (string) $result['id'];
+        jsonResponse(200, $result);
+    } catch (Exception $e) {
+        error_log('Failed to create asset: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to create asset']);
+    }
+}
+
+/* ============================================================
+   KNOWLEDGE BASE API ROUTES
+   ============================================================ */
+
+if ($path === '/api/knowledge' && $method === 'GET') {
+    try {
+        $articles = $knowledgeModel->getAllPublished();
+        jsonResponse(200, array_map(function($a) {
+            $a['id'] = (string) $a['id'];
+            return $a;
+        }, $articles));
+    } catch (Exception $e) {
+        error_log('Failed to fetch knowledge articles: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch articles']);
+    }
+}
+
+if (preg_match('#^/api/knowledge/([^/]+)$#', $path, $matches) && $method === 'GET') {
+    $id = $matches[1];
+    try {
+        $article = $knowledgeModel->getById((int) $id);
+        if (!$article) {
+            jsonResponse(404, ['error' => 'Article not found']);
+        }
+        $knowledgeModel->incrementViews((int) $id);
+        $article['id'] = (string) $article['id'];
+        jsonResponse(200, $article);
+    } catch (Exception $e) {
+        error_log('Failed to fetch article: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch article']);
+    }
+}
+
+/* ============================================================
+   LEADERBOARD API ROUTE
+   ============================================================ */
+
+if ($path === '/api/leaderboard/daily' && $method === 'GET') {
+    try {
+        $db = MySQLClient::getConnection();
+        $today = date('Y-m-d 00:00:00');
+        
+        $stmt = $db->prepare(
+            "SELECT assigned_to, assigned_to_name, SUM(points) as total_points, COUNT(*) as resolved_count
+             FROM tickets 
+             WHERE status IN ('Resolved', 'Closed') 
+               AND resolved_at >= ?
+               AND assigned_to IS NOT NULL
+             GROUP BY assigned_to, assigned_to_name
+             ORDER BY total_points DESC"
+        );
+        $stmt->execute([$today]);
+        $rows = $stmt->fetchAll();
+        
+        $leaderboard = array_map(function($row) {
+            return [
+                'id' => $row['assigned_to'],
+                'name' => $row['assigned_to_name'] ?? $row['assigned_to'],
+                'points' => (int) ($row['total_points'] ?? 0),
+                'resolvedCount' => (int) $row['resolved_count']
+            ];
+        }, $rows);
+        
+        jsonResponse(200, $leaderboard);
+    } catch (Exception $e) {
+        error_log('Leaderboard error: ' . $e->getMessage());
+        jsonResponse(500, ['error' => 'Failed to fetch leaderboard']);
+    }
+}
+
+/* ============================================================
+   TIMESHEET API ROUTES (Keep existing - already uses MySQL)
    ============================================================ */
 
 require_once __DIR__ . '/timesheet/AuthHelper.php';
@@ -470,7 +789,7 @@ if ($path === '/api/timesheet/admin/list' && $method === 'GET') {
     }
 }
 
-// GET /api/timesheet/admin/detail/:id  ← NEW
+// GET /api/timesheet/admin/detail/:id
 if (preg_match('#^/api/timesheet/admin/detail/(\d+)$#', $path, $matches) && $method === 'GET') {
     TimesheetAuth::requireAdmin();
     $timesheetId = (int) $matches[1];
@@ -571,7 +890,10 @@ if ($path === '/timesheet/reports' && $method === 'GET') {
     exit;
 }
 
-// 12. Static file serving for production (non-API routes)
+/* ============================================================
+   Static file serving for production (non-API routes)
+   ============================================================ */
+
 $distPath = __DIR__ . '/../dist';
 if (strpos($path, '/api/') !== 0) {
     $filePath = $distPath . $path;

@@ -526,3 +526,11 @@ function calculatePriority(string $impact, string $urgency): string {
         default => '4 - Low',
     };
 }
+    
+    return match(true) {
+        $sum <= 2 => '1 - Critical',
+        $sum === 3 => '2 - High',
+        $sum === 4 => '3 - Moderate',
+        default => '4 - Low',
+    };
+}
