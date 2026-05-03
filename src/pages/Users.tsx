@@ -348,7 +348,7 @@ export function Users() {
                 { label: "View all tickets", check: (r: Role) => ROLE_HIERARCHY[r] >= 2 },
                 { label: "Manage tickets", check: (r: Role) => ROLE_HIERARCHY[r] >= 2 },
                 { label: "Company-wide view", check: (r: Role) => ROLE_HIERARCHY[r] >= 3 },
-                { label: "Approve timesheets", check: (r: Role) => ROLE_HIERARCHY[r] >= 4 },
+                { label: "Approve tickets", check: (r: Role) => ROLE_HIERARCHY[r] >= 4 },
                 { label: "Manage users", check: (r: Role) => ROLE_HIERARCHY[r] >= 4 },
                 { label: "Grant/Remove access", check: (r: Role) => ROLE_HIERARCHY[r] >= 4 },
                 { label: "Manage SLA policies", check: (r: Role) => ROLE_HIERARCHY[r] >= 4 },

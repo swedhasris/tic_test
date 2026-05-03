@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { SLATimer } from "../components/SLATimer";
 import { useServiceCatalog } from "../lib/serviceCatalog";
 import confetti from "canvas-confetti";
+import { captureScreenshot, analyzeWorkContext, saveWorkSession, type WorkAnalysis } from "../lib/workSessionAI";
 
 export function TicketDetail() {
   const { id } = useParams();
@@ -33,6 +34,12 @@ export function TicketDetail() {
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [workDescription, setWorkDescription] = useState("");
   const [workSummary, setWorkSummary] = useState("");
+
+  // AI Work Session state
+  const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiNotes, setAiNotes] = useState<WorkAnalysis | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [aiStatusMessage, setAiStatusMessage] = useState("");
 
   const visibleCategories = categories.filter((item) => item.status === 'active');
   const visibleSubcategories = subcategories.filter(s => s.categoryId === editedTicket?.categoryId && s.status === 'active');
@@ -63,8 +70,7 @@ export function TicketDetail() {
           setElapsedTime(elapsed);
         } else {
           setIsTimerRunning(false);
-          // Don't clear timerStartTime here - preserve it for saving
-          setElapsedTime(0);
+          // Don't clear timerStartTime or elapsedTime here - preserve it for the modal/saving
         }
       }
     });
@@ -115,6 +121,19 @@ export function TicketDetail() {
   const handleUpdate = async () => {
     if (!id || !user || !editedTicket) return;
     setIsUpdating(true);
+
+    // Auto-save timer time to timesheet if timer has been running
+    if (elapsedTime > 0 && (timerStartTime || timerStartTimeRef.current)) {
+      try {
+        await saveTimerEntry(
+          `Work on incident ${ticket.number}`,
+          `Ticket ${ticket.number}`
+        );
+      } catch (e) {
+        console.error("[TicketDetail] Auto-save timer failed:", e);
+      }
+    }
+
     try {
       const historyEntries: any[] = [];
       const fields = ["category", "categoryId", "subcategory", "subcategoryId", "service", "serviceId", "serviceProvider", "status", "impact", "urgency", "assignmentGroup", "title", "description", "assignedTo", "affectedUser", "resolutionCode", "resolutionNotes"];
@@ -318,13 +337,15 @@ export function TicketDetail() {
     setEditedTicket((prev: any) => ({ ...prev, [field]: value }));
   };
 
-  // Timer functions
+  // Timer functions — AI-Enhanced
   const handleStartTimer = async () => {
     const startTime = new Date();
     setIsTimerRunning(true);
     setTimerStartTime(startTime);
     timerStartTimeRef.current = startTime;
     setElapsedTime(0);
+    setAiProcessing(true);
+    setAiStatusMessage("📸 Capturing work context...");
 
     // Save active timer state to Firestore for real-time sync
     try {
@@ -339,11 +360,62 @@ export function TicketDetail() {
     } catch (error) {
       console.error("Error saving active timer state:", error);
     }
+
+    // AI: Capture screenshot context + analyze
+    try {
+      setAiStatusMessage("🔍 Analyzing your current work...");
+      const context = await captureScreenshot();
+
+      setAiStatusMessage("🤖 AI is generating work notes...");
+      const analysis = await analyzeWorkContext(
+        context,
+        ticket.number,
+        ticket.title || '',
+        'start'
+      );
+
+      setAiNotes(analysis);
+
+      // Auto-populate work note
+      const noteText = `▶ [${startTime.toLocaleTimeString()}] ${analysis.summary}`;
+      setWorkNote(prev => prev ? `${prev}\n${noteText}` : noteText);
+
+      // Save work session
+      setAiStatusMessage("💾 Saving work session...");
+      const session = await saveWorkSession({
+        user_id: user.uid,
+        user_name: profile?.name || user.email || '',
+        ticket_id: ticket.id,
+        ticket_number: ticket.number,
+        start_time: startTime.toISOString(),
+        start_context: context,
+        ai_notes_start: analysis.summary,
+        status: 'active'
+      });
+      setActiveSessionId(session.id);
+
+      setAiStatusMessage("✅ AI notes generated successfully!");
+      setTimeout(() => setAiStatusMessage(""), 3000);
+    } catch (error) {
+      console.error("[AI WorkSession] Start analysis failed:", error);
+      setAiStatusMessage("⚠️ AI notes unavailable — timer running");
+      setTimeout(() => setAiStatusMessage(""), 3000);
+    } finally {
+      setAiProcessing(false);
+    }
   };
 
   const handleStopTimer = async () => {
+    const stopTime = new Date();
+    let finalElapsed = elapsedTime;
+    
+    if (timerStartTime) {
+      finalElapsed = Math.floor((stopTime.getTime() - timerStartTime.getTime()) / 1000);
+      setElapsedTime(finalElapsed);
+    }
     setIsTimerRunning(false);
-    setShowTimerModal(true);
+    setAiProcessing(true);
+    setAiStatusMessage("📸 Capturing final work context...");
 
     // Clear active timer state from Firestore
     try {
@@ -353,12 +425,69 @@ export function TicketDetail() {
     } catch (error) {
       console.error("Error clearing active timer state:", error);
     }
+
+    // AI: Capture stop screenshot context + analyze
+    try {
+      setAiStatusMessage("🔍 Analyzing completed work...");
+      const stopContext = await captureScreenshot();
+
+      setAiStatusMessage("🤖 AI is generating completion notes...");
+      const analysis = await analyzeWorkContext(
+        stopContext,
+        ticket.number,
+        ticket.title || '',
+        'stop',
+        finalElapsed
+      );
+
+      setAiNotes(analysis);
+
+      // Auto-append stop note to work notes
+      const stopNote = `⏹ [${stopTime.toLocaleTimeString()}] ${analysis.summary}`;
+      setWorkNote(prev => prev ? `${prev}\n${stopNote}` : stopNote);
+
+      // Pre-fill the modal
+      setWorkDescription(analysis.summary);
+      setWorkSummary(`${analysis.actionVerb} — ${ticket.number}`);
+
+      // Update work session
+      if (activeSessionId) {
+        setAiStatusMessage("💾 Saving completed session...");
+        try {
+          await fetch(`/api/work-sessions/${activeSessionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              stop_time: stopTime.toISOString(),
+              duration: finalElapsed,
+              stop_context: stopContext,
+              ai_notes_stop: analysis.summary,
+              status: 'completed'
+            })
+          });
+        } catch (e) {
+          console.error("[AI WorkSession] Failed to update session:", e);
+        }
+      }
+
+      setAiStatusMessage("✅ Work notes generated! Review and save.");
+      setTimeout(() => setAiStatusMessage(""), 4000);
+    } catch (error) {
+      console.error("[AI WorkSession] Stop analysis failed:", error);
+      setAiStatusMessage("⚠️ AI notes unavailable");
+      setTimeout(() => setAiStatusMessage(""), 3000);
+    } finally {
+      setAiProcessing(false);
+    }
+
+    setShowTimerModal(true);
   };
 
   const formatElapsedTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleViewTimer = () => {
@@ -366,8 +495,66 @@ export function TicketDetail() {
     navigate("/timesheet");
   };
 
+  const saveTimerEntry = async (desc?: string, summary?: string) => {
+    const startTimeToSave = timerStartTimeRef.current || timerStartTime;
+    if (!user || !ticket || !startTimeToSave || elapsedTime <= 0) return;
+
+    const minutes = Math.floor(elapsedTime / 60);
+    if (minutes <= 0) return;
+
+    const dateStr = new Date().toISOString().split("T")[0];
+
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(now);
+    monday.setDate(diff);
+    const weekStart = monday.toISOString().split("T")[0];
+    const weekEnd = new Date(monday.getTime() + 6 * 86400000).toISOString().split("T")[0];
+
+    const tsRes = await fetch("/api/timesheets/get-or-create", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: user.uid,
+        week_start: weekStart,
+        week_end: weekEnd
+      })
+    });
+    if (!tsRes.ok) throw new Error("Failed to get/create timesheet");
+    const ts = await tsRes.json();
+
+    const tcRes = await fetch("/api/time-cards", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        timesheet_id: ts.id,
+        user_id: user.uid,
+        entry_date: dateStr,
+        task: summary || `Ticket ${ticket.ticket_number || ticket.number}`,
+        description: desc || `Work on incident ${ticket.number}`,
+        hours_worked: minutes,
+        start_time: startTimeToSave.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        end_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        work_type: "Remote",
+        billable: "Billable"
+      })
+    });
+    if (!tcRes.ok) throw new Error("Failed to create time card");
+
+    // Reset timer state
+    setIsTimerRunning(false);
+    setTimerStartTime(null);
+    timerStartTimeRef.current = null;
+    setElapsedTime(0);
+    try {
+      await setDoc(doc(db, "users", user.uid), { activeTimer: null }, { merge: true });
+    } catch (error) {
+      console.error("Error clearing active timer:", error);
+    }
+  };
+
   const handleSaveTimeEntry = async () => {
-    // Use the ref to get the start time, as it persists even when state changes
     const startTimeToSave = timerStartTimeRef.current || timerStartTime;
     if (!user || !ticket || !startTimeToSave) {
       alert("Timer start time not found. Please try starting the timer again.");
@@ -375,82 +562,11 @@ export function TicketDetail() {
     }
 
     try {
-      // Calculate hours from seconds
-      const hours = (elapsedTime / 3600).toFixed(2);
-
-      // Get current week's Monday
-      const now = new Date();
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(now);
-      monday.setDate(diff);
-      monday.setHours(0, 0, 0, 0);
-      const weekStart = monday.toISOString().split("T")[0];
-
-      // Find or create timesheet for this week
-      const timesheetQuery = query(
-        collection(db, "timesheets"),
-        where("userId", "==", user.uid),
-        where("weekStart", "==", weekStart)
-      );
-      const timesheetSnapshot = await getDocs(timesheetQuery);
-
-      let timesheetId: string;
-      if (timesheetSnapshot.empty) {
-        // Create new timesheet
-        const newTimesheet = await addDoc(collection(db, "timesheets"), {
-          userId: user.uid,
-          userName: profile?.name || user.email,
-          weekStart,
-          status: "Draft",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        timesheetId = newTimesheet.id;
-      } else {
-        timesheetId = timesheetSnapshot.docs[0].id;
-      }
-
-      // Add time card entry
-      await addDoc(collection(db, "timesheets", timesheetId, "timeCards"), {
-        ticketId: ticket.id,
-        ticketNumber: ticket.number,
-        task: workSummary || "Ticket Work",
-        description: workDescription,
-        date: new Date().toISOString().split("T")[0],
-        startTime: startTimeToSave.toISOString(),
-        endTime: new Date().toISOString(),
-        actualHours: parseFloat(hours),
-        elapsedSeconds: elapsedTime,
-        workType: "Remote",
-        billable: "Billable",
-        createdAt: serverTimestamp()
-      });
-
-      // Update timesheet updatedAt
-      await updateDoc(doc(db, "timesheets", timesheetId), {
-        updatedAt: serverTimestamp()
-      });
-
-      // Reset timer state
-      setIsTimerRunning(false);
-      setTimerStartTime(null);
-      timerStartTimeRef.current = null;
-      setElapsedTime(0);
+      await saveTimerEntry(workDescription, workSummary || workDescription);
       setShowTimerModal(false);
       setWorkDescription("");
       setWorkSummary("");
-
-      // Clear active timer from Firestore
-      try {
-        await setDoc(doc(db, "users", user.uid), {
-          activeTimer: null
-        }, { merge: true });
-      } catch (error) {
-        console.error("Error clearing active timer:", error);
-      }
-
-      alert(`Time entry saved! ${hours} hours added to timesheet.`);
+      alert("Time entry saved to timesheet!");
     } catch (error: any) {
       console.error("Error saving time entry:", error);
       alert(`Failed to save time entry: ${error.message}`);
@@ -528,10 +644,21 @@ export function TicketDetail() {
             />
           </div>
           <div className="flex items-center gap-2">
+            {/* AI Status Message */}
+            {aiStatusMessage && (
+              <div className="mr-4 flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+                <div className="w-2 h-2 bg-sn-green rounded-full animate-ping" />
+                <span className="text-[10px] font-bold text-sn-green uppercase tracking-wider">{aiStatusMessage}</span>
+              </div>
+            )}
+
             {/* Timer Display */}
             {isTimerRunning && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg">
-                <Clock className="w-4 h-4 text-red-600 animate-pulse" />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg shadow-sm">
+                <div className="relative">
+                  <Clock className="w-4 h-4 text-red-600" />
+                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full animate-ping" />
+                </div>
                 <span className="font-mono text-sm font-bold text-red-700">{formatElapsedTime(elapsedTime)}</span>
               </div>
             )}
@@ -541,19 +668,35 @@ export function TicketDetail() {
               <Button
                 size="sm"
                 onClick={handleStartTimer}
-                className="h-8 px-4 font-bold bg-blue-600 text-white shadow-md hover:bg-blue-700"
+                disabled={aiProcessing}
+                className={cn(
+                  "h-8 px-4 font-bold text-white shadow-md transition-all duration-300",
+                  aiProcessing ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 hover:shadow-green-200 active:scale-95"
+                )}
               >
-                <Play className="w-3 h-3 mr-1.5" />
-                Start
+                {aiProcessing ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />
+                ) : (
+                  <Play className="w-3 h-3 mr-1.5 fill-current" />
+                )}
+                {aiProcessing ? "Capturing..." : "Start"}
               </Button>
             ) : (
               <Button
                 size="sm"
                 onClick={handleStopTimer}
-                className="h-8 px-4 font-bold bg-red-600 text-white shadow-md hover:bg-red-700"
+                disabled={aiProcessing}
+                className={cn(
+                  "h-8 px-4 font-bold text-white shadow-md transition-all duration-300",
+                  aiProcessing ? "bg-gray-400 cursor-not-allowed" : "bg-red-600 hover:bg-red-700 hover:shadow-red-200 active:scale-95"
+                )}
               >
-                <Square className="w-3 h-3 mr-1.5" />
-                Stop
+                {aiProcessing ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />
+                ) : (
+                  <Square className="w-3 h-3 mr-1.5 fill-current" />
+                )}
+                {aiProcessing ? "Analyzing..." : "Stop"}
               </Button>
             )}
 
@@ -561,14 +704,14 @@ export function TicketDetail() {
               variant="outline"
               size="sm"
               onClick={handleViewTimer}
-              className="h-8 px-4 font-bold border-border bg-white text-sn-dark hover:bg-gray-50"
+              className="h-8 px-4 font-bold border-border bg-white text-sn-dark hover:bg-gray-50 transition-colors"
             >
               <Eye className="w-3 h-3 mr-1.5" />
               View
             </Button>
 
             <Button variant="outline" size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold border-border bg-white text-sn-dark">Update</Button>
-            <Button size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold bg-sn-green text-sn-dark shadow-sm hover:bg-sn-green/90">Submit</Button>
+            <Button size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold bg-sn-green text-sn-dark shadow-sm hover:bg-sn-green/90 transition-all hover:shadow-sn-green/20">Submit</Button>
           </div>
         </div>
       </div>
@@ -585,6 +728,10 @@ export function TicketDetail() {
               <div className="grid grid-cols-3 items-center gap-4">
                 <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Reporting User</label>
                 <input readOnly className="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs" value={ticket.caller || ''} />
+              </div>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Affected User</label>
+                <input readOnly className="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs" value={ticket.affected_user || ticket.affectedUser || '-'} />
               </div>
               <div className="grid grid-cols-3 items-center gap-4">
                 <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Category</label>

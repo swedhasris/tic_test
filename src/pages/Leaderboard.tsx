@@ -11,7 +11,7 @@ interface SLAStat {
   onTimeCount: number;
   breachedCount: number;
   complianceRate: number;
-  avgResolutionHours: number;
+  avgResolutionMinutes: number;
   slaScore: number;
   fastestResolution: number;
 }
@@ -21,7 +21,7 @@ interface SLAPolicy {
   name: string;
   priority: string;
   category: string;
-  resolutionTimeHours: number;
+  resolutionTimeMinutes: number;
 }
 
 export function Leaderboard() {
@@ -83,7 +83,7 @@ export function Leaderboard() {
             onTimeCount: 0,
             breachedCount: 0,
             complianceRate: 0,
-            avgResolutionHours: 0,
+            avgResolutionMinutes: 0,
             slaScore: 0,
             fastestResolution: Infinity
           };
@@ -92,19 +92,19 @@ export function Leaderboard() {
         const stat = userStats[userId];
         stat.resolvedCount += 1;
 
-        // Calculate resolution time in hours
+        // Calculate resolution time in minutes
         const createdDate = parseDate(data.createdAt);
         const resolvedAt = parseDate(data.resolvedAt);
-        let resolutionHours = 0;
+        let resolutionMinutes = 0;
         if (createdDate && resolvedAt) {
-          resolutionHours = (resolvedAt.getTime() - createdDate.getTime()) / (1000 * 60 * 60);
+          resolutionMinutes = (resolvedAt.getTime() - createdDate.getTime()) / (1000 * 60);
         }
 
         // Determine SLA target from policy or ticket deadline
-        let slaTargetHours = 24; // default
+        let slaTargetMinutes = 1440; // default (24h)
         const deadline = parseDate(data.resolutionDeadline);
         if (createdDate && deadline) {
-          slaTargetHours = (deadline.getTime() - createdDate.getTime()) / (1000 * 60 * 60);
+          slaTargetMinutes = (deadline.getTime() - createdDate.getTime()) / (1000 * 60);
         } else {
           // Match by priority/category
           const priority = data.priority || "";
@@ -113,7 +113,7 @@ export function Leaderboard() {
             (p.priority === priority || !p.priority) &&
             (p.category === category || !p.category || p.category === "")
           ) || slaPolicies.find(p => p.priority === priority);
-          slaTargetHours = match?.resolutionTimeHours || 24;
+          slaTargetMinutes = match?.resolutionTimeMinutes || 1440;
         }
 
         // On-time if resolved before deadline
@@ -128,7 +128,7 @@ export function Leaderboard() {
           stat.breachedCount += 1;
         }
 
-        // --- SIMPLE SLA SCORING: 1 hour = 1 point × Priority Multiplier ---
+        // --- SIMPLE SLA SCORING: 1 minute = 1 point × Priority Multiplier ---
         let ticketScore = 0;
 
         // Priority multiplier
@@ -139,8 +139,8 @@ export function Leaderboard() {
         else if (priorityStr.includes("3")) priorityMultiplier = 1;   // Medium: 1x
         else priorityMultiplier = 0.5;                                // Low: 0.5x
 
-        // Base points: resolution hours × priority multiplier
-        ticketScore = Math.round(resolutionHours * priorityMultiplier);
+        // Base points: resolution minutes × priority multiplier
+        ticketScore = Math.round(resolutionMinutes * priorityMultiplier);
 
         // Breach penalty: 50% reduction if SLA was breached
         if (isBreached) {
@@ -150,12 +150,12 @@ export function Leaderboard() {
         stat.slaScore += ticketScore;
 
         // Track fastest resolution
-        if (resolutionHours > 0 && resolutionHours < stat.fastestResolution) {
-          stat.fastestResolution = resolutionHours;
+        if (resolutionMinutes > 0 && resolutionMinutes < stat.fastestResolution) {
+          stat.fastestResolution = resolutionMinutes;
         }
 
-        // Accumulate resolution hours for average
-        stat.avgResolutionHours += resolutionHours;
+        // Accumulate resolution minutes for average
+        stat.avgResolutionMinutes += resolutionMinutes;
       });
 
       // Finalize stats
@@ -163,8 +163,8 @@ export function Leaderboard() {
         stat.complianceRate = stat.resolvedCount > 0
           ? Math.round((stat.onTimeCount / stat.resolvedCount) * 100)
           : 0;
-        stat.avgResolutionHours = stat.resolvedCount > 0
-          ? Math.round((stat.avgResolutionHours / stat.resolvedCount) * 10) / 10
+        stat.avgResolutionMinutes = stat.resolvedCount > 0
+          ? Math.round(stat.avgResolutionMinutes / stat.resolvedCount)
           : 0;
         if (stat.fastestResolution === Infinity) stat.fastestResolution = 0;
       });
@@ -318,7 +318,7 @@ export function Leaderboard() {
                     <div>
                       <div className="font-semibold">{user.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {user.resolvedCount} ticket{user.resolvedCount !== 1 ? "s" : ""} · {user.avgResolutionHours}h avg
+                        {user.resolvedCount} ticket{user.resolvedCount !== 1 ? "s" : ""} · {user.avgResolutionMinutes}m avg
                       </div>
                     </div>
                   </div>
@@ -370,8 +370,8 @@ export function Leaderboard() {
           icon={<Clock className="text-blue-500 w-5 h-5" />}
           label="Team Avg Resolution"
           value={leaderboard.length > 0
-            ? `${(leaderboard.reduce((acc, curr) => acc + curr.avgResolutionHours, 0) / leaderboard.length).toFixed(1)}h`
-            : "0h"
+            ? `${(leaderboard.reduce((acc, curr) => acc + curr.avgResolutionMinutes, 0) / leaderboard.length).toFixed(0)}m`
+            : "0m"
           }
         />
       </div>

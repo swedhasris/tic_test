@@ -1,11 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, CheckCircle, AlertCircle, BarChart2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { db } from "../lib/firebase";
-import {
-  collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, orderBy
-} from "firebase/firestore";
 import { Link } from "react-router-dom";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -61,92 +56,76 @@ export function TimesheetWeekly() {
     };
   });
 
-  useEffect(() => { loadWeek(); }, [weekOffset, user]);
-
-  async function loadWeek() {
+  const loadWeek = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // Use Promise.all to run queries in parallel where possible
-      const [tsSnap] = await Promise.all([
-        getDocs(query(
-          collection(db, "timesheets"),
-          where("userId", "==", user.uid),
-          where("weekStart", "==", weekStart)
-        ))
-      ]);
-
-      let ts: any;
-      if (tsSnap.empty) {
-        const ref = await addDoc(collection(db, "timesheets"), {
-          userId: user.uid,
-          weekStart,
-          weekEnd,
-          status: "Draft",
-          totalHours: 0,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        ts = { id: ref.id, userId: user.uid, weekStart, weekEnd, status: "Draft", totalHours: 0 };
-      } else {
-        ts = { id: tsSnap.docs[0].id, ...tsSnap.docs[0].data() };
-      }
+      // Get or create timesheet via API
+      const tsRes = await fetch("/api/timesheets/get-or-create", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.uid,
+          week_start: weekStart,
+          week_end: weekEnd
+        })
+      });
+      const ts = await tsRes.json();
       setTimesheet(ts);
 
-      // Load time cards in parallel with other operations
-      const [cardsSnap] = await Promise.all([
-        getDocs(query(
-          collection(db, "timeCards"),
-          where("timesheetId", "==", ts.id),
-          orderBy("entryDate", "asc")
-        ))
-      ]);
-      
-      setTimeCards(cardsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // Load time cards for this timesheet
+      const tcRes = await fetch(`/api/time-cards?timesheet_id=${ts.id}`);
+      const cards = await tcRes.json();
+      setTimeCards(Array.isArray(cards) ? cards : []);
     } catch (e) {
       console.error(e);
+      setTimeCards([]);
     }
     setLoading(false);
-  }
+  }, [user, weekStart, weekEnd]);
+
+  useEffect(() => { loadWeek(); }, [loadWeek]);
 
   async function saveEntry() {
-    const hrs = parseFloat(form.hours);
+    const mins = parseFloat(form.hours);
     const errs: string[] = [];
     if (!form.task) errs.push("Task is required");
-    if (!hrs || hrs <= 0) errs.push("Hours must be greater than 0");
-    if (hrs > 24) errs.push("Hours cannot exceed 24");
+    if (!mins || mins <= 0) errs.push("Minutes must be greater than 0");
+    if (mins > 1440) errs.push("Minutes cannot exceed 1440");
 
-    // Daily limit check
+    // Daily limit check (24 hours = 1440 minutes)
     const dayTotal = timeCards
-      .filter(c => c.entryDate === selectedDate && c.id !== editEntry?.id)
-      .reduce((sum, c) => sum + (c.hoursWorked || 0), 0);
-    if (dayTotal + hrs > 24) errs.push(`Total hours for this day would exceed 24 (currently ${dayTotal} hrs)`);
+      .filter(c => c.entry_date === selectedDate && c.id !== editEntry?.id)
+      .reduce((sum, c) => sum + (parseFloat(c.hours_worked) || 0), 0);
+    if (dayTotal + mins > 1440) errs.push(`Total minutes for this day would exceed 1440 (currently ${dayTotal} mins)`);
 
     if (errs.length) { setErrors(errs); return; }
 
     setSaving(true);
     try {
       const data = {
-        timesheetId: timesheet.id,
-        userId: user!.uid,
-        entryDate: selectedDate,
+        timesheet_id: timesheet.id,
+        user_id: user!.uid,
+        entry_date: selectedDate,
         task: form.task,
-        hoursWorked: hrs,
+        hours_worked: mins,
         description: form.description,
-        status: "Draft",
-        updatedAt: serverTimestamp(),
+        status: "Draft"
       };
 
       if (editEntry) {
-        await updateDoc(doc(db, "timeCards", editEntry.id), data);
+        await fetch(`/api/time-cards/${editEntry.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
       } else {
-        await addDoc(collection(db, "timeCards"), { ...data, createdAt: serverTimestamp() });
+        await fetch("/api/time-cards", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
       }
-
-      // Recalculate total
-      const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
-      const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-      await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
 
       setShowModal(false);
       setEditEntry(null);
@@ -159,20 +138,23 @@ export function TimesheetWeekly() {
 
   async function deleteEntry(cardId: string) {
     if (!confirm("Delete this entry?")) return;
-    await deleteDoc(doc(db, "timeCards", cardId));
-    const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
-    const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-    await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
-    loadWeek();
+    try {
+      await fetch(`/api/time-cards/${cardId}`, { method: 'DELETE' });
+      loadWeek();
+    } catch (e) { console.error(e); }
   }
 
   async function submitTimesheet() {
     if (!confirm("Submit this timesheet for approval? You won't be able to edit it after.")) return;
     if (timeCards.length === 0) { alert("Cannot submit an empty timesheet."); return; }
-    await updateDoc(doc(db, "timesheets", timesheet.id), {
-      status: "Submitted", submittedAt: serverTimestamp(), updatedAt: serverTimestamp()
-    });
-    loadWeek();
+    try {
+      await fetch(`/api/timesheets/${timesheet.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: "Submitted" })
+      });
+      loadWeek();
+    } catch (e) { console.error(e); }
   }
 
   function openAdd(date: string) {
@@ -184,34 +166,39 @@ export function TimesheetWeekly() {
   }
 
   function openEdit(card: any) {
-    setSelectedDate(card.entryDate);
+    setSelectedDate(card.entry_date);
     setEditEntry(card);
-    setForm({ task: card.task || "", hours: String(card.hoursWorked || ""), description: card.description || "" });
+    setForm({ task: card.task || "", hours: String(card.hours_worked || ""), description: card.description || "" });
     setErrors([]);
     setShowModal(true);
   }
 
   const canEdit = timesheet?.status === "Draft" || timesheet?.status === "Rejected";
-  const weekTotal = timeCards.reduce((s, c) => s + (c.hoursWorked || 0), 0);
+  const weekTotal = timeCards.reduce((s, c) => s + (parseFloat(c.hours_worked) || 0), 0);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-border">
-        <div>
-          <h1 className="text-2xl font-bold text-sn-dark">Timesheet</h1>
-          <p className="text-muted-foreground text-sm">Log and manage your weekly working hours</p>
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-sn-green/10 rounded-xl">
+            <Clock className="w-6 h-6 text-sn-green" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-sn-dark">My Tickets</h1>
+            <p className="text-sm text-muted-foreground">Log your daily minutes</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link to="/timesheet/reports" className="flex items-center gap-2 px-3 py-2 border border-border rounded text-sm hover:bg-muted transition-colors">
-            <BarChart2 className="w-4 h-4" /> Reports
-          </Link>
+        <div className="flex items-center gap-4 bg-white p-2 rounded-lg border border-border">
+          <div className="text-right px-4 border-r border-border">
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Week Total</div>
+            <div className="text-xl font-bold text-sn-green">{weekTotal.toFixed(0)} mins</div>
+          </div>
           <span className={`px-3 py-1 rounded-full text-sm font-semibold ${STATUS_COLORS[timesheet?.status] || STATUS_COLORS.Draft}`}>
             {timesheet?.status || "Draft"}
           </span>
           {canEdit && (
             <button onClick={submitTimesheet} className="flex items-center gap-2 bg-sn-green text-sn-dark px-4 py-2 rounded font-semibold text-sm hover:opacity-90 transition-opacity">
-              <CheckCircle className="w-4 h-4" /> Submit Timesheet
+              <CheckCircle className="w-4 h-4" /> Submit Tickets
             </button>
           )}
         </div>
@@ -222,7 +209,7 @@ export function TimesheetWeekly() {
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-start gap-3">
           <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
           <div>
-            <div className="font-semibold">Timesheet Rejected</div>
+            <div className="font-semibold">Tickets Rejected</div>
             <div className="text-sm mt-1">{timesheet.rejectionReason}</div>
           </div>
         </div>
@@ -238,7 +225,7 @@ export function TimesheetWeekly() {
             {new Date(weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} —{" "}
             {new Date(weekEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </div>
-          <div className="text-sm text-muted-foreground">Total: <strong>{weekTotal.toFixed(2)}</strong> hours</div>
+          <div className="text-sm text-muted-foreground">Total: <strong>{weekTotal.toFixed(0)}</strong> mins</div>
         </div>
         <button onClick={() => setWeekOffset(w => w + 1)} className="flex items-center gap-1 px-3 py-2 border border-border rounded text-sm hover:bg-muted transition-colors">
           Next Week <ChevronRight className="w-4 h-4" />
@@ -253,15 +240,15 @@ export function TimesheetWeekly() {
       ) : (
         <div className="grid grid-cols-7 gap-3">
           {weekDays.map(day => {
-            const entries = timeCards.filter(c => c.entryDate === day.date);
-            const dayTotal = entries.reduce((s, c) => s + (c.hoursWorked || 0), 0);
+            const entries = timeCards.filter(c => c.entry_date === day.date);
+            const dayTotal = entries.reduce((s, c) => s + (parseFloat(c.hours_worked) || 0), 0);
             const isWeekend = ["Sat", "Sun"].includes(day.dayName);
             return (
               <div key={day.date} className={`rounded-lg border border-border flex flex-col min-h-[280px] ${isWeekend ? "bg-muted/40" : "bg-white"}`}>
                 <div className={`p-3 border-b border-border rounded-t-lg ${isWeekend ? "bg-muted/30" : "bg-muted/10"}`}>
                   <div className="text-xs font-bold uppercase text-muted-foreground">{day.dayName}</div>
                   <div className="text-base font-semibold">{day.fullDate}</div>
-                  <div className="text-sm font-bold text-sn-green mt-1">{dayTotal.toFixed(1)} hrs</div>
+                  <div className="text-sm font-bold text-sn-green mt-1">{dayTotal.toFixed(0)} mins</div>
                 </div>
                 <div className="flex-grow p-2 space-y-1.5 overflow-y-auto max-h-[180px]">
                   {entries.length === 0 ? (
@@ -269,7 +256,7 @@ export function TimesheetWeekly() {
                   ) : entries.map(entry => (
                     <div key={entry.id} className="p-2 bg-muted/30 rounded border border-border text-xs group relative hover:bg-muted/50 transition-colors">
                       <div className="font-semibold truncate pr-10">{entry.task}</div>
-                      <div className="text-muted-foreground">{entry.hoursWorked} hrs</div>
+                      <div className="text-muted-foreground">{entry.hours_worked} mins</div>
                       {entry.description && <div className="text-muted-foreground truncate mt-0.5">{entry.description}</div>}
                       {canEdit && (
                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex gap-0.5">
@@ -300,8 +287,8 @@ export function TimesheetWeekly() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Week Total", value: `${weekTotal.toFixed(2)} hrs`, color: "text-sn-dark" },
-          { label: "Daily Average", value: `${(weekTotal / 7).toFixed(2)} hrs`, color: "text-blue-600" },
+          { label: "Week Total", value: `${weekTotal.toFixed(0)} mins`, color: "text-sn-dark" },
+          { label: "Daily Average", value: `${(weekTotal / 7).toFixed(0)} mins`, color: "text-blue-600" },
           { label: "Entries", value: timeCards.length, color: "text-purple-600" },
           { label: "Status", value: timesheet?.status || "Draft", color: timesheet?.status === "Approved" ? "text-green-600" : timesheet?.status === "Rejected" ? "text-red-600" : "text-gray-700" },
         ].map(s => (
@@ -332,11 +319,18 @@ export function TimesheetWeekly() {
                   {tasks.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Hours Worked <span className="text-red-500">*</span></label>
-                <input type="number" step="0.5" min="0.5" max="24" value={form.hours} onChange={e => setForm(f => ({ ...f, hours: e.target.value }))} className="w-full p-2 border border-border rounded text-sm" placeholder="e.g. 8" />
-                <p className="text-xs text-muted-foreground mt-1">Max 24 hours per day total</p>
-              </div>
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase mb-1">Minutes Worked <span className="text-red-500">*</span></label>
+                  <input
+                    type="number"
+                    step="5"
+                    value={form.hours}
+                    onChange={e => setForm({ ...form, hours: e.target.value })}
+                    className="w-full p-2.5 border border-border rounded-lg outline-none focus:ring-2 focus:ring-sn-green/20 focus:border-sn-green transition-all"
+                    placeholder="Enter minutes (e.g. 30, 45, 60)"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Max 1440 minutes per day total</p>
+                </div>
               <div>
                 <label className="text-sm font-medium block mb-1">Description / Notes</label>
                 <textarea rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="w-full p-2 border border-border rounded text-sm resize-none" placeholder="Describe the work done..." />

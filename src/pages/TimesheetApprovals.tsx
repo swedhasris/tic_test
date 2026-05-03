@@ -1,6 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { collection, onSnapshot, query, getDocs, updateDoc, doc, serverTimestamp, orderBy } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { ROLE_HIERARCHY } from "../lib/roles";
 import { ShieldAlert, CheckCircle, XCircle, RotateCcw, Eye, X } from "lucide-react";
@@ -27,30 +25,39 @@ export function TimesheetApprovals() {
   const [loading, setLoading] = useState(true);
 
   // Only admin (level 4) and above can approve
-  const canApprove = ROLE_HIERARCHY[role] >= ROLE_HIERARCHY["admin"];
+  const canApprove = ROLE_HIERARCHY[role as any] >= ROLE_HIERARCHY["admin"];
+
+  const loadData = useCallback(async () => {
+    if (!canApprove) return;
+    setLoading(true);
+    try {
+      // Load all users for name lookup
+      const usersRes = await fetch("/api/users");
+      const usersList = await usersRes.json();
+      const map: Record<string, any> = {};
+      usersList.forEach((u: any) => { map[u.uid] = u; });
+      setUsers(map);
+
+      // Load all timesheets
+      const tsRes = await fetch("/api/timesheets/all"); // Assuming there's an endpoint for all timesheets
+      const tsList = await tsRes.json();
+      setTimesheets(tsList);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }, [canApprove]);
 
   useEffect(() => {
-    if (!canApprove) return;
-    // Load all users for name lookup
-    getDocs(collection(db, "users")).then(snap => {
-      const map: Record<string, any> = {};
-      snap.docs.forEach(d => { map[d.id] = d.data(); });
-      setUsers(map);
-    });
-    // Live timesheets
-    const q = query(collection(db, "timesheets"), orderBy("updatedAt", "desc"));
-    return onSnapshot(q, snap => {
-      setTimesheets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    });
-  }, [canApprove]);
+    loadData();
+  }, [loadData]);
 
   if (!canApprove) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
         <ShieldAlert className="w-16 h-16 text-muted-foreground opacity-20" />
         <h2 className="text-2xl font-bold">Access Restricted</h2>
-        <p className="text-muted-foreground">Timesheet approvals require Administrator access or above.</p>
+        <p className="text-muted-foreground">Ticket approvals require Administrator access or above.</p>
         <p className="text-xs text-muted-foreground">Allowed: Admin · Super Admin · Ultra Super Admin</p>
       </div>
     );
@@ -69,57 +76,58 @@ export function TimesheetApprovals() {
 
   const handleApprove = async (tsId: string) => {
     if (!confirm("Approve this timesheet?")) return;
-    await updateDoc(doc(db, "timesheets", tsId), {
-      status: "Approved",
-      approvedAt: serverTimestamp(),
-      approvedBy: profile?.uid,
-      updatedAt: serverTimestamp(),
-    });
-    // Update all time cards
-    const cards = await getDocs(query(collection(db, "timeCards")));
-    for (const c of cards.docs) {
-      if (c.data().timesheetId === tsId) {
-        await updateDoc(c.ref, { status: "Approved" });
-      }
-    }
+    try {
+      await fetch(`/api/timesheets/${tsId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: "Approved",
+          approved_by: profile?.uid
+        })
+      });
+      loadData();
+    } catch (e) { console.error(e); }
   };
 
   const handleReject = async () => {
     if (!rejectId || !rejectReason.trim()) return;
-    await updateDoc(doc(db, "timesheets", rejectId), {
-      status: "Rejected",
-      rejectionReason: rejectReason,
-      updatedAt: serverTimestamp(),
-    });
-    const cards = await getDocs(query(collection(db, "timeCards")));
-    for (const c of cards.docs) {
-      if (c.data().timesheetId === rejectId) {
-        await updateDoc(c.ref, { status: "Rejected" });
-      }
-    }
-    setRejectId(null);
-    setRejectReason("");
+    try {
+      await fetch(`/api/timesheets/${rejectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: "Rejected",
+          rejection_reason: rejectReason
+        })
+      });
+      setRejectId(null);
+      setRejectReason("");
+      loadData();
+    } catch (e) { console.error(e); }
   };
 
   const handleReopen = async (tsId: string) => {
     if (!confirm("Reopen this timesheet for editing?")) return;
-    await updateDoc(doc(db, "timesheets", tsId), {
-      status: "Draft",
-      rejectionReason: null,
-      updatedAt: serverTimestamp(),
-    });
-    const cards = await getDocs(query(collection(db, "timeCards")));
-    for (const c of cards.docs) {
-      if (c.data().timesheetId === tsId) {
-        await updateDoc(c.ref, { status: "Draft" });
-      }
-    }
+    try {
+      await fetch(`/api/timesheets/${tsId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: "Draft",
+          rejection_reason: null
+        })
+      });
+      loadData();
+    } catch (e) { console.error(e); }
   };
 
   const handleView = async (ts: any) => {
     setViewTs(ts);
-    const cards = await getDocs(query(collection(db, "timeCards")));
-    setViewCards(cards.docs.filter(c => c.data().timesheetId === ts.id).map(c => ({ id: c.id, ...c.data() })));
+    try {
+      const tcRes = await fetch(`/api/time-cards?timesheet_id=${ts.id}`);
+      const cards = await tcRes.json();
+      setViewCards(cards);
+    } catch (e) { console.error(e); }
   };
 
   return (
@@ -127,8 +135,8 @@ export function TimesheetApprovals() {
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-border">
         <div>
-          <h1 className="text-2xl font-bold text-sn-dark">Timesheet Approvals</h1>
-          <p className="text-sm text-muted-foreground">Review and approve employee timesheets</p>
+          <h1 className="text-2xl font-bold text-sn-dark">Ticket Approvals</h1>
+          <p className="text-sm text-muted-foreground">Review and approve employee tickets</p>
         </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="p-2 border border-border rounded text-sm outline-none focus:ring-1 focus:ring-sn-green">
@@ -158,7 +166,7 @@ export function TimesheetApprovals() {
       {/* Table */}
       <div className="bg-white border border-border rounded-lg shadow-sm overflow-hidden">
         <div className="p-4 border-b border-border bg-muted/10 text-sm font-bold">
-          Timesheets ({filtered.length})
+          Tickets ({filtered.length})
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -166,7 +174,7 @@ export function TimesheetApprovals() {
               <tr className="bg-muted/30 border-b border-border text-[10px] font-bold uppercase text-muted-foreground tracking-wide">
                 <th className="p-3">Employee</th>
                 <th className="p-3">Week</th>
-                <th className="p-3">Total Hours</th>
+                <th className="p-3">Total Minutes</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Submitted</th>
                 <th className="p-3">Actions</th>
@@ -178,7 +186,7 @@ export function TimesheetApprovals() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No timesheets found.</td></tr>
               ) : filtered.map(ts => {
-                const user = users[ts.userId] || {};
+                const user = users[ts.user_id] || {};
                 const status = ts.status || "Draft";
                 return (
                   <tr key={ts.id} className="hover:bg-muted/5 transition-colors">
@@ -187,16 +195,16 @@ export function TimesheetApprovals() {
                       <div className="text-xs text-muted-foreground">{user.email || ""}</div>
                     </td>
                     <td className="p-3 text-sm">
-                      <div>{ts.weekStart?.substring?.(0,10) || "—"}</div>
-                      <div className="text-xs text-muted-foreground">to {ts.weekEnd?.substring?.(0,10) || "—"}</div>
+                      <div>{ts.week_start?.substring?.(0,10) || "—"}</div>
+                      <div className="text-xs text-muted-foreground">to {ts.week_end?.substring?.(0,10) || "—"}</div>
                     </td>
-                    <td className="p-3 font-bold text-sm">{(ts.totalHours || 0).toFixed(2)} hrs</td>
+                    <td className="p-3 font-bold text-sm">{(parseFloat(ts.total_hours) || 0).toFixed(0)} mins</td>
                     <td className="p-3">
                       <span className={cn("px-2 py-0.5 rounded text-xs font-bold", STATUS_COLORS[status] || STATUS_COLORS.Draft)}>
                         {status}
                       </span>
                     </td>
-                    <td className="p-3 text-xs text-muted-foreground">{formatDate(ts.submittedAt)}</td>
+                    <td className="p-3 text-xs text-muted-foreground">{formatDate(ts.submitted_at)}</td>
                     <td className="p-3">
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => handleView(ts)} title="View"
@@ -237,16 +245,16 @@ export function TimesheetApprovals() {
           onClick={e => e.target === e.currentTarget && setViewTs(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
-              <h3 className="font-bold">Timesheet Details</h3>
+              <h3 className="font-bold">Ticket Details</h3>
               <button onClick={() => setViewTs(null)} className="p-1 hover:bg-muted rounded"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm bg-muted/20 p-4 rounded-lg">
                 <div><span className="text-muted-foreground">Status:</span> <span className={cn("px-2 py-0.5 rounded text-xs font-bold ml-1", STATUS_COLORS[viewTs.status] || "")}>{viewTs.status}</span></div>
-                <div><span className="text-muted-foreground">Total:</span> <strong className="ml-1">{(viewTs.totalHours || 0).toFixed(2)} hrs</strong></div>
-                <div><span className="text-muted-foreground">Week:</span> <span className="ml-1">{viewTs.weekStart?.substring?.(0,10)} → {viewTs.weekEnd?.substring?.(0,10)}</span></div>
-                <div><span className="text-muted-foreground">Submitted:</span> <span className="ml-1">{formatDate(viewTs.submittedAt)}</span></div>
-                {viewTs.rejectionReason && <div className="col-span-2 text-red-600"><span className="font-medium">Rejection:</span> {viewTs.rejectionReason}</div>}
+                <div><span className="text-muted-foreground">Total:</span> <strong className="ml-1">{(parseFloat(viewTs.total_hours) || 0).toFixed(0)} mins</strong></div>
+                <div><span className="text-muted-foreground">Week:</span> <span className="ml-1">{viewTs.week_start?.substring?.(0,10)} → {viewTs.week_end?.substring?.(0,10)}</span></div>
+                <div><span className="text-muted-foreground">Submitted:</span> <span className="ml-1">{formatDate(viewTs.submitted_at)}</span></div>
+                {viewTs.rejection_reason && <div className="col-span-2 text-red-600"><span className="font-medium">Rejection:</span> {viewTs.rejection_reason}</div>}
               </div>
               <div>
                 <h4 className="font-semibold text-sm mb-2">Time Entries ({viewCards.length})</h4>
@@ -254,7 +262,7 @@ export function TimesheetApprovals() {
                   <thead><tr className="bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground">
                     <th className="p-2 text-left">Date</th>
                     <th className="p-2 text-left">Task</th>
-                    <th className="p-2 text-right">Hours</th>
+                    <th className="p-2 text-right">Minutes</th>
                     <th className="p-2 text-left">Notes</th>
                   </tr></thead>
                   <tbody className="divide-y divide-border">
@@ -262,9 +270,9 @@ export function TimesheetApprovals() {
                       <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No entries</td></tr>
                     ) : viewCards.map(c => (
                       <tr key={c.id}>
-                        <td className="p-2">{c.entryDate?.substring?.(0,10) || "—"}</td>
+                        <td className="p-2">{c.entry_date?.substring?.(0,10) || "—"}</td>
                         <td className="p-2 font-medium">{c.task || c.taskId || "—"}</td>
-                        <td className="p-2 text-right font-bold">{(c.hoursWorked || 0).toFixed(1)}</td>
+                        <td className="p-2 text-right font-bold">{(parseFloat(c.hours_worked) || 0).toFixed(0)}</td>
                         <td className="p-2 text-muted-foreground">{c.description || "—"}</td>
                       </tr>
                     ))}
@@ -282,7 +290,7 @@ export function TimesheetApprovals() {
           onClick={e => e.target === e.currentTarget && setRejectId(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between bg-red-50">
-              <h3 className="font-bold text-red-700">Reject Timesheet</h3>
+              <h3 className="font-bold text-red-700">Reject Ticket</h3>
               <button onClick={() => setRejectId(null)} className="p-1 hover:bg-red-100 rounded"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">

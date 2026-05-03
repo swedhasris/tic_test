@@ -263,46 +263,32 @@ export function Timesheet() {
     if (!user) return;
     setLoading(true);
     try {
-      console.log("[Timesheet] Loading data for user:", user.uid, "weekStart:", weekStart);
-
-      // First, get or create timesheet
-      const tsQuery = query(
-        collection(db, "timesheets"),
-        where("userId", "==", user.uid),
-        where("weekStart", "==", weekStart)
-      );
-      const tsSnap = await getDocs(tsQuery);
-
-      let ts: any;
-      if (tsSnap.empty) {
-        console.log("[Timesheet] Creating new timesheet");
-        const ref = await addDoc(collection(db, "timesheets"), {
-          userId: user.uid, weekStart, weekEnd, status: "Draft",
-          totalHours: 0, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        });
-        ts = { id: ref.id, userId: user.uid, weekStart, weekEnd, status: "Draft", totalHours: 0 };
-      } else {
-        console.log("[Timesheet] Found existing timesheet");
-        ts = { id: tsSnap.docs[0].id, ...tsSnap.docs[0].data() };
-      }
+      // Get or create timesheet via MySQL API
+      const tsRes = await fetch("/api/timesheets/get-or-create", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.uid,
+          week_start: weekStart,
+          week_end: weekEnd
+        })
+      });
+      if (!tsRes.ok) throw new Error(`Timesheet fetch failed: ${tsRes.status}`);
+      const ts = await tsRes.json();
       setTimesheet(ts);
 
-      // Then fetch time cards
-      const cardsQuery = query(collection(db, "timeCards"), where("timesheetId", "==", ts.id));
-      const cardsSnap = await getDocs(cardsQuery);
-
-      const cards = cardsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      cards.sort((a: any, b: any) => (a.entryDate || "").localeCompare(b.entryDate || ""));
-      console.log("[Timesheet] Loaded", cards.length, "time cards for timesheet", ts.id);
-      setTimeCards(cards);
-    } catch (e) {
+      // Fetch time cards via MySQL API
+      const tcRes = await fetch(`/api/time-cards?timesheet_id=${ts.id}`);
+      if (!tcRes.ok) throw new Error(`Time cards fetch failed: ${tcRes.status}`);
+      const cards = await tcRes.json();
+      setTimeCards(Array.isArray(cards) ? cards : []);
+    } catch (e: any) {
       console.error("[Timesheet] Error loading data:", e);
+      alert(`Failed to load timesheet: ${e.message}`);
     } finally {
-      // Pre-fill user info
       setEmailFrom(profile?.name || user?.email || "");
       setEmailContactName(profile?.name || "");
       setLoading(false);
-      console.log("[Timesheet] Loading completed, loading state set to false");
     }
   }
 
@@ -319,50 +305,49 @@ export function Timesheet() {
 
   /* ── Save entry ── */
   async function saveEntry() {
-    if (!user || !timesheet) {
-      console.warn("[Timesheet] Cannot save: user or timesheet missing", { user: !!user, timesheet: !!timesheet });
-      return;
-    }
+    if (!user || !timesheet) return;
     setSaving(true);
-    console.log("[Timesheet] Saving entry...", { timesheetId: timesheet.id, entryDate, startTime, endTime, actualHrs, workType, billable });
     try {
-      const data: any = {
-        timesheetId: timesheet.id,
-        userId: user.uid,
-        entryDate,
+      const data = {
+        timesheet_id: timesheet.id,
+        user_id: user.uid,
+        entry_date: entryDate,
         task: workType,
-        hoursWorked: parseFloat(actualHrs) || 0,
+        hours_worked: parseFloat(actualHrs) || 0, // Using hours_worked for minutes
         description: notesContent,
-        shortDescription,
-        startTime,
-        endTime,
+        short_description: shortDescription,
+        start_time: startTime,
+        end_time: endTime,
         deduct: parseFloat(deduct) || 0,
-        workType,
-        billable,
-        status: "Draft",
-        updatedAt: serverTimestamp(),
+        work_type: workType,
+        billable: billable,
+        status: "Draft"
       };
 
+      let res;
       if (editingCard) {
-        await updateDoc(doc(db, "timeCards", editingCard.id), data);
-        console.log("[Timesheet] Updated existing card:", editingCard.id);
+        res = await fetch(`/api/time-cards/${editingCard.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
       } else {
-        const newRef = await addDoc(collection(db, "timeCards"), { ...data, createdAt: serverTimestamp() });
-        console.log("[Timesheet] Created new card:", newRef.id);
+        res = await fetch("/api/time-cards", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
       }
-
-      // Recalculate total
-      const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
-      const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-      await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
-      console.log("[Timesheet] Total hours updated:", total);
+      
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
 
       setEditingCard(null);
       resetTimeFields();
       await loadData();
-    } catch (e) {
+      alert("Time entry saved successfully!");
+    } catch (e: any) {
       console.error("[Timesheet] Save failed:", e);
-      alert("Failed to save time entry. Check console for details.");
+      alert(`Failed to save time entry: ${e.message}`);
     }
     setSaving(false);
   }
@@ -371,7 +356,7 @@ export function Timesheet() {
     setStartTime(nowTimeStr());
     setEndTime("");
     setDeduct("");
-    setActualHrs("0.00");
+    setActualHrs("0");
     setShortDescription("");
     setNotesContent("");
     if (editorRef.current) editorRef.current.innerHTML = "";
@@ -379,43 +364,46 @@ export function Timesheet() {
 
   function loadCardForEdit(card: any) {
     setEditingCard(card);
-    setEntryDate(card.entryDate || formatDate(new Date()));
-    setStartTime(card.startTime || "");
-    setEndTime(card.endTime || "");
-    setDeduct(String(card.deduct || ""));
-    setActualHrs(String(card.hoursWorked || "0.00"));
-    setWorkType(card.workType || card.task || "Remote");
+    setEntryDate(card.entry_date || formatDate(new Date()));
+    setStartTime(card.start_time || "");
+    setEndTime(card.end_time || "");
+    setDeduct(String(card.deduct || "0"));
+    setActualHrs(String(card.hours_worked || "0"));
+    setWorkType(card.work_type || card.task || "Remote");
     setBillable(card.billable || "Billable");
-    setShortDescription(card.shortDescription || "");
+    setShortDescription(card.short_description || "");
     setNotesContent(card.description || "");
     if (editorRef.current) editorRef.current.innerText = card.description || "";
   }
 
   async function deleteEntry(cardId: string) {
     if (!confirm("Delete this entry?")) return;
-    await deleteDoc(doc(db, "timeCards", cardId));
-    const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", timesheet.id)));
-    const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-    await updateDoc(doc(db, "timesheets", timesheet.id), { totalHours: total, updatedAt: serverTimestamp() });
-    loadData();
+    try {
+      const res = await fetch(`/api/time-cards/${cardId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+      await loadData();
+      alert("Entry deleted successfully!");
+    } catch (e: any) {
+      console.error("[Timesheet] Delete failed:", e);
+      alert(`Failed to delete entry: ${e.message}`);
+    }
   }
 
   async function submitTimesheet() {
-    if (!confirm("Submit this timesheet for approval? You won't be able to edit it after.")) return;
-    if (!timesheet?.id) { alert("Timesheet not found. Please try again."); return; }
-    if (timeCards.length === 0) { alert("Cannot submit an empty timesheet."); return; }
-
+    if (!confirm("Submit this timesheet for approval?")) return;
+    if (timeCards.length === 0) { alert("Cannot submit empty timesheet."); return; }
     try {
-      await updateDoc(doc(db, "timesheets", timesheet.id), {
-        status: "Submitted",
-        submittedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+      const res = await fetch(`/api/timesheets/${timesheet.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: "Submitted" })
       });
+      if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
       alert("Timesheet submitted successfully!");
-      loadData();
-    } catch (error: any) {
-      console.error("Error submitting timesheet:", error);
-      alert(`Failed to submit timesheet: ${error.message || "Unknown error"}`);
+      await loadData();
+    } catch (e: any) {
+      console.error("[Timesheet] Submit failed:", e);
+      alert(`Failed to submit timesheet: ${e.message}`);
     }
   }
 
@@ -426,7 +414,7 @@ export function Timesheet() {
   }
 
   const canEdit = timesheet?.status === "Draft" || timesheet?.status === "Rejected";
-  const weekTotal = timeCards.reduce((s, c) => s + (c.hoursWorked || 0), 0);
+  const weekTotal = timeCards.reduce((s, c) => s + (parseFloat(c.hours_worked) || 0), 0);
 
   if (loading) {
     return (
@@ -515,12 +503,11 @@ export function Timesheet() {
                       </div>
                     </div>
                     <div className="flex-shrink-0">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        ticket.priority?.includes("Critical") ? "bg-red-600 text-white" :
-                        ticket.priority?.includes("High") ? "bg-red-100 text-red-700" :
-                        ticket.priority?.includes("Moderate") ? "bg-orange-100 text-orange-700" :
-                        "bg-blue-100 text-blue-700"
-                      }`}>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${ticket.priority?.includes("Critical") ? "bg-red-600 text-white" :
+                          ticket.priority?.includes("High") ? "bg-red-100 text-red-700" :
+                            ticket.priority?.includes("Moderate") ? "bg-orange-100 text-orange-700" :
+                              "bg-blue-100 text-blue-700"
+                        }`}>
                         {ticket.priority || "4 - Low"}
                       </span>
                     </div>
@@ -588,7 +575,7 @@ export function Timesheet() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-muted-foreground font-medium block mb-1">Actual Hrs:</label>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Actual Mins:</label>
                   <input type="text" value={actualHrs} onChange={e => setActualHrs(e.target.value)}
                     className="w-full p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8" />
                 </div>
@@ -678,7 +665,7 @@ export function Timesheet() {
                           <th className="p-2">Date</th>
                           <th className="p-2">Start</th>
                           <th className="p-2">End</th>
-                          <th className="p-2">Hours</th>
+                          <th className="p-2">Minutes</th>
                           <th className="p-2">Work Type</th>
                           <th className="p-2">Billable</th>
                           <th className="p-2">Notes</th>
@@ -689,16 +676,16 @@ export function Timesheet() {
                       <tbody>
                         {timeCards.map(card => (
                           <tr key={card.id} className="border-b border-border hover:bg-muted/10 text-xs">
-                            <td className="p-2">{card.entryDate}</td>
-                            <td className="p-2">{card.startTime || "-"}</td>
-                            <td className="p-2">{card.endTime || "-"}</td>
+                            <td className="p-2">{card.entry_date}</td>
+                            <td className="p-2">{card.start_time || "-"}</td>
+                            <td className="p-2">{card.end_time || "-"}</td>
                             <td className="p-2 font-bold">
-  {card.elapsedSeconds ? formatTimeFromSeconds(card.elapsedSeconds) : `${(card.hoursWorked || 0).toFixed(2)} hrs`}
-</td>
-                            <td className="p-2">{card.workType || card.task || "-"}</td>
+                              {card.elapsedSeconds ? formatTimeFromSeconds(card.elapsedSeconds) : `${(card.hours_worked || 0).toFixed(0)} mins`}
+                            </td>
+                            <td className="p-2">{card.work_type || card.task || "-"}</td>
                             <td className="p-2">{card.billable || "-"}</td>
                             <td className="p-2 max-w-[200px] truncate">{card.description || "-"}</td>
-                            <td className="p-2 max-w-[200px] truncate">{card.shortDescription || "–"}</td>
+                            <td className="p-2 max-w-[200px] truncate">{card.short_description || "–"}</td>
                             <td className="p-2">
                               {canEdit && (
                                 <div className="flex gap-1">
@@ -842,8 +829,8 @@ export function Timesheet() {
       {/* ═══ QUICK STATS FOOTER ═══ */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Week Total", value: `${weekTotal.toFixed(2)} hrs`, color: "text-sn-dark" },
-          { label: "Daily Average", value: `${(weekTotal / 7).toFixed(2)} hrs`, color: "text-blue-600" },
+          { label: "Week Total", value: `${weekTotal.toFixed(0)} mins`, color: "text-sn-dark" },
+          { label: "Daily Average", value: `${(weekTotal / 7).toFixed(0)} mins`, color: "text-blue-600" },
           { label: "Entries", value: timeCards.length, color: "text-purple-600" },
           { label: "Status", value: timesheet?.status || "Draft", color: timesheet?.status === "Approved" ? "text-green-600" : timesheet?.status === "Rejected" ? "text-red-600" : "text-gray-700" },
         ].map(s => (

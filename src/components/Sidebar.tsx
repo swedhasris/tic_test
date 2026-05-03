@@ -30,7 +30,6 @@ import {
   GitPullRequest,
   BookOpen,
   HelpCircle,
-  MessageSquare,
   BarChart2,
   ClipboardList,
   CalendarDays,
@@ -44,6 +43,7 @@ import { db } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useTickets } from "../contexts/TicketsContext";
 import { useBranding } from "../contexts/BrandingContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { Palette } from "lucide-react";
 
@@ -62,21 +62,9 @@ export function Sidebar() {
   const { user, profile, signOut } = useAuth();
   const { openTicketsCount, assignedToMeCount } = useTickets();
   const { branding } = useBranding();
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem("sn-dark-mode");
-    return saved ? saved === "true" : false;
-  });
+  const { theme, setTheme, resolvedTheme } = useTheme();
 
-  // Apply dark class on mount and whenever it changes
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isDarkMode) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-    localStorage.setItem("sn-dark-mode", String(isDarkMode));
-  }, [isDarkMode]);
+  const isDarkMode = resolvedTheme === "dark";
   const [expandedSections, setExpandedSections] = useState<string[]>(() => {
     const saved = localStorage.getItem("sn-sidebar-expanded");
     return saved ? JSON.parse(saved) : ["Favorites", "Incident"];
@@ -93,9 +81,9 @@ export function Sidebar() {
       label: "Favorites",
       items: [
         { icon: LayoutDashboard, label: profile?.role === 'user' ? "Service Portal" : "Incident Dashboard", path: "/" },
-        { icon: MessageSquare, label: "Conversations", path: "/conversations" },
         { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },
-        { icon: Clock, label: "My Timesheet", path: "/timesheet" },
+        { icon: CalendarDays, label: "Calendar", path: "/calendar" },
+        { icon: Ticket, label: "My Tickets", path: "/timesheet" },
         { icon: BarChart2, label: "Timesheet Reports", path: "/timesheet/reports" },
       ]
     },
@@ -143,7 +131,7 @@ export function Sidebar() {
         { icon: Users, label: "Group Management", path: "/groups" },
         { icon: Settings2, label: "System Settings", path: "/settings" },
         { icon: CheckCircle2, label: "Approved Tickets", path: "/approved-tickets" },
-        { icon: ClipboardList, label: "Timesheet Approvals", path: "/timesheet/approvals" },
+        { icon: ClipboardList, label: "Ticket Approvals", path: "/timesheet/approvals" },
         { icon: CheckCircle2, label: "Approved Timesheets", path: "/timesheet/reports?status=Approved" },
         { icon: Palette, label: "Branding", path: "/branding", superAdminOnly: true },
       ]
@@ -191,9 +179,9 @@ export function Sidebar() {
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             {branding.logoBase64 ? (
-              <img 
-                src={branding.logoBase64} 
-                alt="Logo" 
+              <img
+                src={branding.logoBase64}
+                alt="Logo"
                 className="w-8 h-8 rounded object-cover"
               />
             ) : (
@@ -286,7 +274,7 @@ export function Sidebar() {
       {/* Sidebar Footer */}
       <div className="p-4 border-t border-white/10 space-y-2">
         <button
-          onClick={() => setIsDarkMode(!isDarkMode)}
+          onClick={() => setTheme(isDarkMode ? "light" : "dark")}
           className={cn(
             "flex items-center gap-3 px-4 py-2.5 w-full text-text-dim hover:text-white transition-colors rounded hover:bg-white/5",
             isCollapsed && "justify-center px-0"

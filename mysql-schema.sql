@@ -365,6 +365,49 @@ CREATE TABLE IF NOT EXISTS system_settings (
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- TIMESHEETS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS timesheets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(128) NOT NULL,
+    week_start DATE NOT NULL,
+    week_end DATE NOT NULL,
+    status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
+    total_hours DECIMAL(10, 2) DEFAULT 0.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    submitted_at TIMESTAMP NULL,
+    INDEX idx_user_week (user_id, week_start),
+    INDEX idx_status (status)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TIME CARDS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS time_cards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    timesheet_id INT NOT NULL,
+    user_id VARCHAR(128) NOT NULL,
+    entry_date DATE NOT NULL,
+    task VARCHAR(255),
+    hours_worked DECIMAL(10, 2) DEFAULT 0.00,
+    description TEXT,
+    short_description VARCHAR(255),
+    start_time VARCHAR(20),
+    end_time VARCHAR(20),
+    deduct DECIMAL(10, 2) DEFAULT 0.00,
+    work_type VARCHAR(50),
+    billable VARCHAR(50),
+    status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
+    elapsed_seconds INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (timesheet_id) REFERENCES timesheets(id) ON DELETE CASCADE,
+    INDEX idx_timesheet_id (timesheet_id),
+    INDEX idx_user_date (user_id, entry_date)
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- INSERT DEFAULT SLA POLICIES
 -- ============================================================
 INSERT INTO sla_policies (name, priority, response_time_hours, resolution_time_hours, description) VALUES

@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { BarChart2, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { db } from "../lib/firebase";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 
 export function TimesheetReports() {
   const { user, profile } = useAuth();
@@ -11,14 +9,14 @@ export function TimesheetReports() {
   const [allCards, setAllCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadData(); }, [user]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const tsSnap = await getDocs(query(collection(db, "timesheets"), where("userId", "==", user.uid), orderBy("weekStart", "desc")));
-      const tsList = tsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Fetch timesheets
+      const tsRes = await fetch(`/api/timesheets?user_id=${user.uid}`);
+      const tsList = await tsRes.json();
+      tsList.sort((a: any, b: any) => (b.week_start || "").localeCompare(a.week_start || ""));
       setTimesheets(tsList);
 
       if (tsList.length === 0) {
@@ -27,29 +25,28 @@ export function TimesheetReports() {
         return;
       }
 
-      // Get all timeCards for those timesheets in parallel using Promise.all
-      const cardPromises = tsList.map(ts =>
-        getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", ts.id)))
-      );
-
-      const cardSnapshots = await Promise.all(cardPromises);
-      const allCards: any[] = [];
-      cardSnapshots.forEach(snap => {
-        snap.docs.forEach(d => allCards.push({ id: d.id, ...d.data() }));
-      });
-
-      setAllCards(allCards);
-    } catch (e) { console.error(e); }
+      // Fetch all cards for the user
+      const tcRes = await fetch(`/api/time-cards?user_id=${user.uid}`);
+      const cards = await tcRes.json();
+      setAllCards(cards);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
-  }
+  }, [user]);
 
-  const totalHours = timesheets.reduce((s, t) => s + (t.totalHours || 0), 0);
-  const approvedHours = timesheets.filter(t => t.status === "Approved").reduce((s, t) => s + (t.totalHours || 0), 0);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const totalHours = timesheets.reduce((s, t) => s + (parseFloat(t.total_hours) || 0), 0);
+  const approvedHours = timesheets.filter(t => t.status === "Approved").reduce((s, t) => s + (parseFloat(t.total_hours) || 0), 0);
   const avgPerWeek = timesheets.length ? totalHours / timesheets.length : 0;
 
   // Hours by task
   const taskMap: Record<string, number> = {};
-  allCards.forEach(c => { taskMap[c.task || "Unknown"] = (taskMap[c.task || "Unknown"] || 0) + (c.hoursWorked || 0); });
+  allCards.forEach(c => { 
+    const task = c.task || "Unknown";
+    taskMap[task] = (taskMap[task] || 0) + (parseFloat(c.hours_worked) || 0); 
+  });
   const taskData = Object.entries(taskMap).sort((a, b) => b[1] - a[1]);
   const maxTaskHours = taskData.length ? taskData[0][1] : 1;
 
@@ -69,7 +66,7 @@ export function TimesheetReports() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-sn-dark">Timesheet Reports</h1>
-            <p className="text-sm text-muted-foreground">Analytics for your logged hours</p>
+            <p className="text-sm text-muted-foreground">Analytics for your logged minutes</p>
           </div>
         </div>
       </div>
@@ -83,9 +80,9 @@ export function TimesheetReports() {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4">
             {[
-              { label: "Total Hours", value: totalHours.toFixed(1), sub: `${timesheets.length} weeks`, color: "text-sn-dark" },
-              { label: "Weekly Average", value: avgPerWeek.toFixed(1), sub: "hrs/week", color: "text-blue-600" },
-              { label: "Approved Hours", value: approvedHours.toFixed(1), sub: `${totalHours > 0 ? ((approvedHours / totalHours) * 100).toFixed(0) : 0}% of total`, color: "text-green-600" },
+              { label: "Total Minutes", value: totalHours.toFixed(0), sub: `${timesheets.length} weeks`, color: "text-sn-dark" },
+              { label: "Weekly Average", value: avgPerWeek.toFixed(0), sub: "mins/week", color: "text-blue-600" },
+              { label: "Approved Minutes", value: approvedHours.toFixed(0), sub: `${totalHours > 0 ? ((approvedHours / totalHours) * 100).toFixed(0) : 0}% of total`, color: "text-green-600" },
               { label: "Tasks Used", value: taskData.length, sub: "different tasks", color: "text-purple-600" },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-lg border border-border p-5">
@@ -96,10 +93,10 @@ export function TimesheetReports() {
             ))}
           </div>
 
-          {/* Hours by Task */}
+          {/* Minutes by Task */}
           <div className="bg-white rounded-lg border border-border overflow-hidden">
             <div className="p-4 border-b border-border bg-muted/30">
-              <h3 className="font-semibold">Hours by Task</h3>
+              <h3 className="font-semibold">Minutes by Ticket Type</h3>
             </div>
             <div className="p-4 space-y-3">
               {taskData.length === 0 ? (
@@ -110,7 +107,7 @@ export function TimesheetReports() {
                   <div className="flex-grow h-4 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-sn-green rounded-full transition-all" style={{ width: `${(hrs / maxTaskHours) * 100}%` }} />
                   </div>
-                  <div className="w-20 text-right text-sm font-bold">{hrs.toFixed(1)} hrs</div>
+                  <div className="w-20 text-right text-sm font-bold">{hrs.toFixed(0)} mins</div>
                   <div className="w-12 text-right text-xs text-muted-foreground">{totalHours > 0 ? ((hrs / totalHours) * 100).toFixed(0) : 0}%</div>
                 </div>
               ))}
@@ -127,23 +124,23 @@ export function TimesheetReports() {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border text-xs font-bold uppercase tracking-wide text-muted-foreground">
                     <th className="p-3 text-left">Week</th>
-                    <th className="p-3 text-right">Total Hours</th>
+                    <th className="p-3 text-right">Total Minutes</th>
                     <th className="p-3 text-center">Status</th>
                     <th className="p-3 text-left">Submitted</th>
                   </tr>
                 </thead>
                 <tbody>
                   {timesheets.length === 0 ? (
-                    <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">No timesheets yet.</td></tr>
+                    <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">No records yet.</td></tr>
                   ) : timesheets.map(ts => (
                     <tr key={ts.id} className="border-b border-border hover:bg-muted/10">
-                      <td className="p-3 text-sm font-medium">{ts.weekStart} → {ts.weekEnd}</td>
-                      <td className="p-3 text-right font-bold">{(ts.totalHours || 0).toFixed(2)} hrs</td>
+                      <td className="p-3 text-sm font-medium">{ts.week_start} → {ts.week_end}</td>
+                      <td className="p-3 text-right font-bold">{(parseFloat(ts.total_hours) || 0).toFixed(0)} mins</td>
                       <td className="p-3 text-center">
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLORS[ts.status] || STATUS_COLORS.Draft}`}>{ts.status}</span>
                       </td>
                       <td className="p-3 text-sm text-muted-foreground">
-                        {ts.submittedAt ? new Date(ts.submittedAt.seconds * 1000).toLocaleDateString() : "—"}
+                        {ts.submitted_at ? new Date(ts.submitted_at).toLocaleDateString() : "—"}
                       </td>
                     </tr>
                   ))}

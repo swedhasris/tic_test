@@ -5,11 +5,6 @@ import {
   Printer, ChevronDown
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { db } from "../lib/firebase";
-import {
-  collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, orderBy, onSnapshot
-} from "firebase/firestore";
 import { Link } from "react-router-dom";
 
 /* ─── Timezone list ─── */
@@ -52,7 +47,6 @@ function getMonday(date: Date): Date {
   return d;
 }
 function formatDate(d: Date): string { return d.toISOString().split("T")[0]; }
-function isSameDay(d1: string, d2: string): boolean { return d1 === d2; }
 
 function parseTimeToHour(timeStr: string): number | null {
   if (!timeStr) return null;
@@ -111,9 +105,9 @@ export function Calendar() {
   const [timeCards, setTimeCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"week" | "day" | "month">("week");
-  const [capacityPerDay, setCapacityPerDay] = useState(8);
+  const [capacityPerDay, setCapacityPerDay] = useState(480);
   const [editingCapacity, setEditingCapacity] = useState(false);
-  const [capacityInput, setCapacityInput] = useState("8");
+  const [capacityInput, setCapacityInput] = useState("480");
   const [selectedTimezone, setSelectedTimezone] = useState(() => {
     const localOffset = -(new Date().getTimezoneOffset() / 60);
     const found = TIMEZONES.find(tz => tz.offset === localOffset);
@@ -123,7 +117,7 @@ export function Calendar() {
   // Side panel for editing
   const [editPanel, setEditPanel] = useState<any>(null);
   const [editForm, setEditForm] = useState({
-    startTime: "", endTime: "", hoursWorked: "", workType: "Remote",
+    startTime: "", endTime: "", minutesWorked: "", workType: "Remote",
     billable: "Billable", description: "", task: "", shortDescription: ""
   });
   const [editSaving, setEditSaving] = useState(false);
@@ -162,19 +156,14 @@ export function Calendar() {
     return hourDecimal + tzOffset;
   }
 
-  /* ── Load data with real-time updates ── */
-  useEffect(() => {
+  /* ── Load data ── */
+  const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-
-    // Listen to all timesheets for this user in the visible week range
-    const tsQuery = query(
-      collection(db, "timesheets"),
-      where("userId", "==", user.uid)
-    );
-
-    const unsubTs = onSnapshot(tsQuery, async (tsSnap) => {
-      const tsList = tsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+      // Fetch timesheets for user
+      const tsRes = await fetch(`/api/timesheets?user_id=${user.uid}`);
+      const tsList = await tsRes.json();
       setTimesheets(tsList);
 
       if (tsList.length === 0) {
@@ -183,28 +172,35 @@ export function Calendar() {
         return;
       }
 
-      // Get all timeCards for those timesheets in parallel using Promise.all
-      const cardPromises = tsList.map(ts => 
-        getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", ts.id)))
-      );
-
-      const cardSnapshots = await Promise.all(cardPromises);
-      const allCards: any[] = [];
-      cardSnapshots.forEach(snap => {
-        snap.docs.forEach(d => allCards.push({ id: d.id, ...d.data() }));
-      });
-      
-      setTimeCards(allCards);
+      // Get all time cards for the current week range
+      const tcRes = await fetch(`/api/time-cards?user_id=${user.uid}&start_date=${weekStart}&end_date=${weekEnd}`);
+      const allCards = await tcRes.json();
+      setTimeCards(Array.isArray(allCards) ? allCards : []);
+    } catch (e) {
+      console.error("Error loading calendar data:", e);
+      setTimeCards([]);
+    } finally {
       setLoading(false);
-    });
+    }
+  }, [user, weekStart, weekEnd]);
 
-    return () => unsubTs();
-  }, [user]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') loadData();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   /* ── Filter cards for current week ── */
   const weekCards = useMemo(() => {
+    if (!Array.isArray(timeCards)) return [];
     return timeCards.filter(c => {
-      const d = c.entryDate;
+      const d = c.entry_date;
       return d >= weekStart && d <= weekEnd;
     });
   }, [timeCards, weekStart, weekEnd]);
@@ -214,15 +210,15 @@ export function Calendar() {
     const stats: Record<string, { logged: number; cards: any[] }> = {};
     weekDays.forEach(day => { stats[day.date] = { logged: 0, cards: [] }; });
     weekCards.forEach(card => {
-      if (stats[card.entryDate]) {
-        stats[card.entryDate].logged += card.hoursWorked || 0;
-        stats[card.entryDate].cards.push(card);
+      if (stats[card.entry_date]) {
+        stats[card.entry_date].logged += parseFloat(card.hours_worked) || 0;
+        stats[card.entry_date].cards.push(card);
       }
     });
     return stats;
   }, [weekCards, weekDays]);
 
-  const totalHours = weekCards.reduce((s, c) => s + (c.hoursWorked || 0), 0);
+  const totalMinutes = weekCards.reduce((s, c) => s + (parseFloat(c.hours_worked) || 0), 0);
 
   /* ── Capacity bar color ── */
   function capacityColor(logged: number): string {
@@ -242,12 +238,12 @@ export function Calendar() {
 
   /* ── Position events on grid ── */
   function getEventStyle(card: any): React.CSSProperties | null {
-    const startH = parseTimeToHour(card.startTime);
+    const startH = parseTimeToHour(card.start_time);
     if (startH === null) return null;
-    const endH = parseTimeToHour(card.endTime);
+    const endH = parseTimeToHour(card.end_time);
     const adjusted = applyTzOffset(startH);
     const top = (adjusted - HOUR_START) * HOUR_HEIGHT;
-    const duration = endH !== null ? Math.max(endH - startH, 0.5) : (card.hoursWorked || 1);
+    const duration = endH !== null ? Math.max(endH - startH, 0.5) : (parseFloat(card.hours_worked) / 60 || 1);
     const height = Math.max(duration * HOUR_HEIGHT, 24);
     return { top: `${top}px`, height: `${height}px` };
   }
@@ -289,21 +285,21 @@ export function Calendar() {
   /* ── To-do entries (no time assigned) ── */
   function getTodoEntries(dayDate: string): any[] {
     const cards = dayStats[dayDate]?.cards || [];
-    return cards.filter(c => !c.startTime || parseTimeToHour(c.startTime) === null);
+    return cards.filter(c => !c.start_time || parseTimeToHour(c.start_time) === null);
   }
 
   /* ── Edit panel ── */
   function openEditPanel(card: any) {
     setEditPanel(card);
     setEditForm({
-      startTime: card.startTime || "",
-      endTime: card.endTime || "",
-      hoursWorked: String(card.hoursWorked || ""),
-      workType: card.workType || card.task || "Remote",
+      startTime: card.start_time || "",
+      endTime: card.end_time || "",
+      minutesWorked: String(card.hours_worked || ""),
+      workType: card.work_type || card.task || "Remote",
       billable: card.billable || "Billable",
       description: card.description || "",
       task: card.task || "",
-      shortDescription: card.shortDescription || "",
+      shortDescription: card.short_description || "",
     });
   }
 
@@ -311,26 +307,23 @@ export function Calendar() {
     if (!editPanel) return;
     setEditSaving(true);
     try {
-      await updateDoc(doc(db, "timeCards", editPanel.id), {
-        startTime: editForm.startTime,
-        endTime: editForm.endTime,
-        hoursWorked: parseFloat(editForm.hoursWorked) || 0,
-        workType: editForm.workType,
-        billable: editForm.billable,
-        description: editForm.description,
-        shortDescription: editForm.shortDescription,
-        task: editForm.task,
-        updatedAt: serverTimestamp(),
+      await fetch(`/api/time-cards/${editPanel.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_time: editForm.startTime,
+          end_time: editForm.endTime,
+          hours_worked: parseFloat(editForm.minutesWorked) || 0,
+          work_type: editForm.workType,
+          billable: editForm.billable,
+          description: editForm.description,
+          short_description: editForm.shortDescription,
+          task: editForm.task,
+        })
       });
 
-      // Recalculate total
-      const ts = timesheets.find(t => t.id === editPanel.timesheetId);
-      if (ts) {
-        const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", ts.id)));
-        const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-        await updateDoc(doc(db, "timesheets", ts.id), { totalHours: total, updatedAt: serverTimestamp() });
-      }
       setEditPanel(null);
+      loadData();
     } catch (e) { console.error(e); }
     setEditSaving(false);
   }
@@ -338,14 +331,9 @@ export function Calendar() {
   async function deleteFromPanel() {
     if (!editPanel || !confirm("Delete this entry?")) return;
     try {
-      await deleteDoc(doc(db, "timeCards", editPanel.id));
-      const ts = timesheets.find(t => t.id === editPanel.timesheetId);
-      if (ts) {
-        const allCards = await getDocs(query(collection(db, "timeCards"), where("timesheetId", "==", ts.id)));
-        const total = allCards.docs.reduce((s, d) => s + (d.data().hoursWorked || 0), 0);
-        await updateDoc(doc(db, "timesheets", ts.id), { totalHours: total, updatedAt: serverTimestamp() });
-      }
+      await fetch(`/api/time-cards/${editPanel.id}`, { method: 'DELETE' });
       setEditPanel(null);
+      loadData();
     } catch (e) { console.error(e); }
   }
 
@@ -388,7 +376,7 @@ export function Calendar() {
         <div className="flex items-center gap-2">
           <button className="p-1.5 hover:bg-muted rounded transition-colors"><Plus className="w-4 h-4" /></button>
           <button className="p-1.5 hover:bg-muted rounded transition-colors"><ChevronDown className="w-4 h-4" /></button>
-          <button className="p-1.5 hover:bg-muted rounded transition-colors"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={loadData} className="p-1.5 hover:bg-muted rounded transition-colors"><RefreshCw className="w-4 h-4" /></button>
           <button className="p-1.5 hover:bg-muted rounded transition-colors"><Printer className="w-4 h-4" /></button>
           <select className="text-xs border border-border rounded px-2 py-1 bg-white outline-none">
             <option>Display Type: Time with Schedule Overlay</option>
@@ -452,7 +440,7 @@ export function Calendar() {
       {/* ═══ INFO BANNER ═══ */}
       <div className="bg-blue-50 border-b border-blue-200 px-4 py-1.5 flex items-center gap-2 text-xs text-blue-700">
         <Clock className="w-3.5 h-3.5" />
-        Calendar is in Time Entry mode, now editing time entries. Total hours: <strong>{totalHours.toFixed(2)}</strong>
+        Calendar is in Time Entry mode, now editing time entries. Total minutes: <strong>{totalMinutes.toFixed(0)}</strong>
       </div>
 
       {/* ═══ CAPACITY EDITOR (small popover) ═══ */}
@@ -461,12 +449,12 @@ export function Calendar() {
           <Settings className="w-4 h-4 text-yellow-600" />
           <span className="font-medium">Daily Capacity:</span>
           <input
-            type="number" step="0.5" min="0.5" max="24"
+            type="number" step="15" min="0" max="1440"
             value={capacityInput}
             onChange={e => setCapacityInput(e.target.value)}
             className="w-20 p-1 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green"
           />
-          <span className="text-xs text-muted-foreground">hours/day</span>
+          <span className="text-xs text-muted-foreground">minutes/day</span>
           <button onClick={saveCapacity} className="text-xs font-bold text-blue-600 hover:underline">Save</button>
           <button onClick={() => setEditingCapacity(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
         </div>
@@ -531,9 +519,9 @@ export function Calendar() {
                   className={`mx-1 mt-1 rounded-sm text-[9px] font-bold px-1 py-0.5 flex items-center justify-between ${capacityTextColor(stats.logged)}`}
                   style={{ minHeight: "18px" }}
                 >
-                  <span>{stats.logged.toFixed(2)}/{capacityPerDay.toFixed(2)}</span>
+                  <span>{stats.logged.toFixed(0)}/{capacityPerDay.toFixed(0)}</span>
                   <span>{utilPct}%</span>
-                  <span>{overtime > 0 ? `+${overtime.toFixed(2)}` : remaining.toFixed(2)}</span>
+                  <span>{overtime > 0 ? `+${overtime.toFixed(0)}` : remaining.toFixed(0)}</span>
                 </div>
               </div>
 
@@ -564,7 +552,7 @@ export function Calendar() {
                         <div className="flex-grow px-1.5 py-1 overflow-hidden">
                           <div className="flex items-center gap-1">
                             <Clock className="w-2.5 h-2.5 text-muted-foreground flex-shrink-0" />
-                            <span className="text-[10px] font-bold truncate">{card.shortDescription || card.task || card.workType || "Entry"}</span>
+                            <span className="text-[10px] font-bold truncate">({card.hours_worked}m) {card.short_description || card.task || card.work_type || "Entry"}</span>
                           </div>
                           {card.description && (
                             <div className="text-[9px] text-muted-foreground truncate mt-0.5">{card.description}</div>
@@ -586,7 +574,7 @@ export function Calendar() {
                     onClick={() => openEditPanel(card)}
                   >
                     <Clock className="w-2.5 h-2.5 text-muted-foreground flex-shrink-0" />
-                    <span className="font-medium truncate">{card.shortDescription || card.task || card.workType || "Entry"}</span>
+                    <span className="font-medium truncate">{card.short_description || card.task || card.work_type || "Entry"}</span>
                   </div>
                 ))}
               </div>
@@ -613,7 +601,7 @@ export function Calendar() {
             <div className="flex-grow overflow-y-auto p-5 space-y-4">
               <div>
                 <label className="text-xs text-muted-foreground font-medium block mb-1">Date</label>
-                <input readOnly value={editPanel.entryDate} className="w-full p-1.5 bg-muted/20 border border-border rounded text-xs h-8" />
+                <input readOnly value={editPanel.entry_date} className="w-full p-1.5 bg-muted/20 border border-border rounded text-xs h-8" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -628,8 +616,8 @@ export function Calendar() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Hours Worked</label>
-                <input type="number" step="0.5" value={editForm.hoursWorked} onChange={e => setEditForm(f => ({ ...f, hoursWorked: e.target.value }))}
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Minutes Worked</label>
+                <input type="number" step="5" value={editForm.minutesWorked} onChange={e => setEditForm(f => ({ ...f, minutesWorked: e.target.value }))}
                   className="w-full p-1.5 border border-border rounded text-xs h-8 outline-none focus:ring-1 focus:ring-sn-green" />
               </div>
               <div>

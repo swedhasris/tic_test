@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { TicketsProvider } from "./contexts/TicketsContext";
 import { BrandingProvider } from "./contexts/BrandingContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { Sidebar } from "./components/Sidebar";
 import { AppNavbar } from "./components/AppNavbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -106,10 +107,11 @@ function AppBody() {
   }, [user]);
 
   return (
-    <BrandingProvider>
-      <Router>
-        <Suspense fallback={<LoadingScreen />}>
-          <Routes>
+    <ThemeProvider>
+      <BrandingProvider>
+        <Router>
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route
@@ -357,6 +359,7 @@ function AppBody() {
         </Suspense>
       </Router>
     </BrandingProvider>
+    </ThemeProvider>
   );
 }
 

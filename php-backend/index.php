@@ -609,10 +609,10 @@ if ($path === '/api/leaderboard/daily' && $method === 'GET') {
    TIMESHEET API ROUTES (Keep existing - already uses MySQL)
    ============================================================ */
 
-require_once __DIR__ . '/timesheet/AuthHelper.php';
-require_once __DIR__ . '/timesheet/models/Task.php';
-require_once __DIR__ . '/timesheet/models/Timesheet.php';
-require_once __DIR__ . '/timesheet/models/TimeCard.php';
+require_once __DIR__ . '/my_tickects/AuthHelper.php';
+require_once __DIR__ . '/my_tickects/models/Task.php';
+require_once __DIR__ . '/my_tickects/models/Timesheet.php';
+require_once __DIR__ . '/my_tickects/models/TimeCard.php';
 
 // GET /api/timesheet/tasks
 if ($path === '/api/timesheet/tasks' && $method === 'GET') {
