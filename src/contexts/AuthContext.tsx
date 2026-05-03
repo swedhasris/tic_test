@@ -74,8 +74,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // Don't overwrite demo user state from localStorage
+      const demoSession = localStorage.getItem('demo_user');
+      if (!user && demoSession) {
+        // Demo user exists, don't clear the user state
+        setLoading(false);
+        return;
+      }
+
       setUser(user);
-      
+
       if (unsubscribeProfile) {
         unsubscribeProfile();
         unsubscribeProfile = null;
