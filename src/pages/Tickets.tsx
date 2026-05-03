@@ -34,11 +34,11 @@ function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0,
         setStatus("breached");
         const over = Math.abs(diff);
         const h = Math.floor(over / 3600000), m = Math.floor((over % 3600000) / 60000), s = Math.floor((over % 60000) / 1000);
-        setDisplayTime(`-${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
+        setDisplayTime(`-${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
       } else {
         setStatus(isPaused ? "paused" : "active");
         const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
-        setDisplayTime(`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
+        setDisplayTime(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
       }
     };
 
@@ -52,10 +52,10 @@ function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0,
       <span className="text-[9px] uppercase text-muted-foreground font-bold leading-none">{label}</span>
       <span className={cn(
         "text-[11px] font-mono font-bold leading-none",
-        status === "met"     ? "text-green-600" :
-        status === "breached"? "text-red-600" :
-        status === "waiting" ? "text-gray-400" :
-        status === "paused"  ? "text-orange-500" : "text-blue-600"
+        status === "met" ? "text-green-600" :
+          status === "breached" ? "text-red-600" :
+            status === "waiting" ? "text-gray-400" :
+              status === "paused" ? "text-orange-500" : "text-blue-600"
       )}>
         {displayTime}
       </span>
@@ -99,7 +99,7 @@ export function Tickets() {
     }
   }, [action]);
 
-  const [newTicket, setNewTicket] = useState({ 
+  const [newTicket, setNewTicket] = useState({
     caller: profile?.name || user?.email || "",
     category: "",
     categoryId: "",
@@ -109,8 +109,8 @@ export function Tickets() {
     serviceId: "",
     serviceProvider: "",
     serviceOffering: "",
-    title: "", 
-    description: "", 
+    title: "",
+    description: "",
     channel: "Self-service",
     impact: "2 - Medium",
     urgency: "2 - Medium",
@@ -166,8 +166,8 @@ export function Tickets() {
   useEffect(() => {
     const firstGroup = visibleGroups[0];
     if (newTicket.serviceId && !visibleGroups.some(g => g.name === newTicket.assignmentGroup)) {
-      setNewTicket(prev => ({ 
-        ...prev, 
+      setNewTicket(prev => ({
+        ...prev,
         assignmentGroup: firstGroup?.name || "",
         selectedGroupId: firstGroup?.id || ""
       }));
@@ -252,7 +252,7 @@ export function Tickets() {
     const now = Date.now();
     const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
     const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
-    
+
     const getTs = (tick: any) => {
       const c = tick.createdAt;
       if (!c) return 0;
@@ -272,7 +272,7 @@ export function Tickets() {
 
     // Column-level search filters (case-insensitive)
     const matches = (val: string, filterVal: string) => !filterVal || (val || "").toLowerCase().includes(filterVal.toLowerCase());
-    
+
     return (
       matches(t.number, columnFilters.number) &&
       matches(t.title, columnFilters.title) &&
@@ -348,7 +348,7 @@ export function Tickets() {
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    
+
     if (!user) {
       alert("You must be logged in to create a ticket.");
       return;
@@ -365,9 +365,9 @@ export function Tickets() {
 
     try {
       let priority = calculatePriority(newTicket.impact, newTicket.urgency);
-      
+
       // Find matching SLA policy
-      const matchingPolicy = slaPolicies.find(p => p.priority === priority && (p.category === newTicket.category || !p.category)) 
+      const matchingPolicy = slaPolicies.find(p => p.priority === priority && (p.category === newTicket.category || !p.category))
         || slaPolicies.find(p => p.priority === priority)
         || { responseTimeHours: 4, resolutionTimeHours: 24 }; // Fallback
 
@@ -381,7 +381,7 @@ export function Tickets() {
       // Immediate Breach Check (SLA Engine simulation for creation)
       let responseSlaStatus = "In Progress";
       let resolutionSlaStatus = "In Progress";
-      
+
       if (responseDeadline.getTime() <= now || resolutionDeadline.getTime() <= now) {
         priority = "1 - Critical";
         responseSlaStatus = responseDeadline.getTime() <= now ? "Breached" : "In Progress";
@@ -392,7 +392,7 @@ export function Tickets() {
       const assignmentGroup = newTicket.assignmentGroup || visibleGroups[0]?.name || "Service Desk";
 
       // Determine assigned user name if applicable
-      const assignedUserName = newTicket.assignedTo 
+      const assignedUserName = newTicket.assignedTo
         ? visibleMembers.find(m => m.userId === newTicket.assignedTo)?.userName || agents.find(a => a.id === newTicket.assignedTo)?.name || ""
         : "";
 
@@ -421,8 +421,8 @@ export function Tickets() {
 
       setIsModalOpen(false);
       alert(`Ticket ${ticketNumber} has been created successfully.`);
-      
-      setNewTicket({ 
+
+      setNewTicket({
         caller: "",
         category: "Inquiry / Help",
         categoryId: "",
@@ -432,8 +432,8 @@ export function Tickets() {
         serviceId: "",
         serviceProvider: "",
         serviceOffering: "",
-        title: "", 
-        description: "", 
+        title: "",
+        description: "",
         channel: "Self-service",
         impact: "2 - Medium",
         urgency: "2 - Medium",
@@ -494,9 +494,9 @@ export function Tickets() {
           <div className="flex items-center gap-4">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input 
-                type="text" 
-                placeholder="Search..." 
+              <input
+                type="text"
+                placeholder="Search..."
                 className="pl-9 pr-4 py-2 bg-white border border-border rounded-md text-sm w-64 focus:ring-2 focus:ring-sn-green outline-none"
               />
             </div>
@@ -520,14 +520,14 @@ export function Tickets() {
                 <th className="data-table-header p-2 text-[11px] font-bold uppercase tracking-tight">SLA</th>
               </tr>
               <tr className="bg-white border-b border-border">
-                <td className="p-1.5"><input value={columnFilters.number} onChange={e => setColumnFilters({...columnFilters, number: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.title} onChange={e => setColumnFilters({...columnFilters, title: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.caller} onChange={e => setColumnFilters({...columnFilters, caller: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.priority} onChange={e => setColumnFilters({...columnFilters, priority: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.status} onChange={e => setColumnFilters({...columnFilters, status: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.category} onChange={e => setColumnFilters({...columnFilters, category: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.assignmentGroup} onChange={e => setColumnFilters({...columnFilters, assignmentGroup: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
-                <td className="p-1.5"><input value={columnFilters.assignedTo} onChange={e => setColumnFilters({...columnFilters, assignedTo: e.target.value})} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.number} onChange={e => setColumnFilters({ ...columnFilters, number: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.title} onChange={e => setColumnFilters({ ...columnFilters, title: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.caller} onChange={e => setColumnFilters({ ...columnFilters, caller: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.priority} onChange={e => setColumnFilters({ ...columnFilters, priority: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.status} onChange={e => setColumnFilters({ ...columnFilters, status: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.category} onChange={e => setColumnFilters({ ...columnFilters, category: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.assignmentGroup} onChange={e => setColumnFilters({ ...columnFilters, assignmentGroup: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
+                <td className="p-1.5"><input value={columnFilters.assignedTo} onChange={e => setColumnFilters({ ...columnFilters, assignedTo: e.target.value })} placeholder="Search" className="w-full p-1 border border-border rounded text-[11px] outline-none focus:ring-1 focus:ring-sn-green" /></td>
                 <td className="p-1.5"></td>
               </tr>
             </thead>
@@ -535,7 +535,7 @@ export function Tickets() {
               {filteredTickets.map((ticket, idx) => {
                 const assignedAgent = agents.find(a => a.id === ticket.assignedTo);
                 return (
-                   <tr key={ticket.id} className="data-table-row border-b border-border hover:bg-muted/10 transition-colors">
+                  <tr key={ticket.id} className="data-table-row border-b border-border hover:bg-muted/10 transition-colors">
                     <td className="p-2">
                       <Link to={`/tickets/${ticket.id}`} className="font-mono text-[11px] font-bold text-blue-600 hover:underline">
                         {ticket.number || `INC000${idx + 1}`}
@@ -544,11 +544,11 @@ export function Tickets() {
                     <td className="p-2 text-[11px] font-medium">{ticket.title}</td>
                     <td className="p-2 text-[11px]">{ticket.caller}</td>
                     <td className="p-2">
-                       <span className={cn(
+                      <span className={cn(
                         "px-1 py-0.5 rounded text-[9px] font-bold uppercase",
                         ticket.priority?.includes("Critical") ? "bg-red-600 text-white" :
-                        ticket.priority?.includes("High") ? "bg-red-100 text-red-700" : 
-                        ticket.priority?.includes("Moderate") ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
+                          ticket.priority?.includes("High") ? "bg-red-100 text-red-700" :
+                            ticket.priority?.includes("Moderate") ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
                       )}>
                         {ticket.priority}
                       </span>
@@ -559,10 +559,10 @@ export function Tickets() {
                     <td className="p-2 text-[11px]">{assignedAgent?.name || ticket.assignedToName || ticket.assignedTo || "(empty)"}</td>
                     <td className="p-2">
                       <div className="flex flex-col gap-1">
-                        <SLATimer 
-                          label="Resp" 
-                          deadline={ticket.responseDeadline} 
-                          metAt={ticket.firstResponseAt} 
+                        <SLATimer
+                          label="Resp"
+                          deadline={ticket.responseDeadline}
+                          metAt={ticket.firstResponseAt}
                           isPaused={ticket.status === "On Hold" || ticket.status === "Waiting for Customer"}
                           onHoldStart={ticket.onHoldStart}
                           totalPausedTime={ticket.totalPausedTime}
@@ -602,7 +602,7 @@ export function Tickets() {
                 </Button>
               </div>
             </div>
-            
+
             <form onSubmit={handleCreateTicket} className="p-6 overflow-y-auto max-h-[85vh]">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
                 {/* Left Column */}
@@ -619,31 +619,31 @@ export function Tickets() {
                     </label>
                     <div className="col-span-2 relative">
                       <div className="flex gap-1">
-                        <input 
+                        <input
                           required
                           placeholder="Search for caller..."
                           value={callerSearch || newTicket.caller}
                           onChange={e => {
                             setCallerSearch(e.target.value);
                             setShowCallerResults(true);
-                            setNewTicket({...newTicket, caller: e.target.value});
+                            setNewTicket({ ...newTicket, caller: e.target.value });
                           }}
                           onFocus={() => setShowCallerResults(true)}
-                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
+                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8"
                         />
                         <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setShowCallerResults(!showCallerResults)}><Search className="w-3 h-3" /></Button>
                       </div>
                       {showCallerResults && callerSearch && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-md shadow-lg max-h-40 overflow-y-auto custom-scrollbar">
-                          {allUsers.filter(u => 
-                            u.name?.toLowerCase().includes(callerSearch.toLowerCase()) || 
+                          {allUsers.filter(u =>
+                            u.name?.toLowerCase().includes(callerSearch.toLowerCase()) ||
                             u.email?.toLowerCase().includes(callerSearch.toLowerCase())
                           ).map(u => (
-                            <div 
+                            <div
                               key={u.id}
                               className="p-2 hover:bg-sn-green/10 cursor-pointer text-xs"
                               onClick={() => {
-                                setNewTicket({...newTicket, caller: u.name || u.email});
+                                setNewTicket({ ...newTicket, caller: u.name || u.email });
                                 setCallerSearch(u.name || u.email);
                                 setShowCallerResults(false);
                               }}
@@ -662,30 +662,30 @@ export function Tickets() {
                     </label>
                     <div className="col-span-2 relative">
                       <div className="flex gap-1">
-                        <input 
+                        <input
                           placeholder="Search affected user..."
                           value={affectedSearch || newTicket.affectedUser || ''}
                           onChange={e => {
                             setAffectedSearch(e.target.value);
                             setShowAffectedResults(true);
-                            setNewTicket({...newTicket, affectedUser: e.target.value});
+                            setNewTicket({ ...newTicket, affectedUser: e.target.value });
                           }}
                           onFocus={() => setShowAffectedResults(true)}
-                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8" 
+                          className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green outline-none h-8"
                         />
                         <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setShowAffectedResults(!showAffectedResults)}><Search className="w-3 h-3" /></Button>
                       </div>
                       {showAffectedResults && affectedSearch && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-md shadow-lg max-h-40 overflow-y-auto custom-scrollbar">
-                          {allUsers.filter(u => 
-                            u.name?.toLowerCase().includes(affectedSearch.toLowerCase()) || 
+                          {allUsers.filter(u =>
+                            u.name?.toLowerCase().includes(affectedSearch.toLowerCase()) ||
                             u.email?.toLowerCase().includes(affectedSearch.toLowerCase())
                           ).map(u => (
-                            <div 
+                            <div
                               key={u.id}
                               className="p-2 hover:bg-sn-green/10 cursor-pointer text-xs"
                               onClick={() => {
-                                setNewTicket({...newTicket, affectedUser: u.name || u.email});
+                                setNewTicket({ ...newTicket, affectedUser: u.name || u.email });
                                 setAffectedSearch(u.name || u.email);
                                 setShowAffectedResults(false);
                               }}
@@ -700,7 +700,7 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Category</label>
-                    <select 
+                    <select
                       value={newTicket.categoryId}
                       onChange={e => {
                         const category = visibleCategories.find((item) => item.id === e.target.value);
@@ -725,7 +725,7 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Subcategory</label>
-                    <select 
+                    <select
                       value={newTicket.subcategoryId}
                       onChange={e => {
                         const subcategory = visibleSubcategories.find((item) => item.id === e.target.value);
@@ -775,7 +775,7 @@ export function Tickets() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">State</label>
-                    <select 
+                    <select
                       disabled
                       className="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs outline-none h-8"
                     >
@@ -784,9 +784,9 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Impact</label>
-                    <select 
+                    <select
                       value={newTicket.impact}
-                      onChange={e => setNewTicket({...newTicket, impact: e.target.value})}
+                      onChange={e => setNewTicket({ ...newTicket, impact: e.target.value })}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green h-8"
                     >
                       <option>1 - High</option>
@@ -796,9 +796,9 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Urgency</label>
-                    <select 
+                    <select
                       value={newTicket.urgency}
-                      onChange={e => setNewTicket({...newTicket, urgency: e.target.value})}
+                      onChange={e => setNewTicket({ ...newTicket, urgency: e.target.value })}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green h-8"
                     >
                       <option>1 - High</option>
@@ -808,10 +808,10 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Priority</label>
-                    <input 
-                      disabled 
-                      className="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs font-bold text-blue-600 h-8" 
-                      value={calculatePriority(newTicket.impact, newTicket.urgency)} 
+                    <input
+                      disabled
+                      className="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs font-bold text-blue-600 h-8"
+                      value={calculatePriority(newTicket.impact, newTicket.urgency)}
                     />
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
@@ -820,7 +820,7 @@ export function Tickets() {
                       value={newTicket.assignmentGroup}
                       onChange={e => {
                         const group = visibleGroups.find(g => g.name === e.target.value);
-                        setNewTicket({...newTicket, assignmentGroup: e.target.value, selectedGroupId: group?.id || ""});
+                        setNewTicket({ ...newTicket, assignmentGroup: e.target.value, selectedGroupId: group?.id || "" });
                       }}
                       className="col-span-2 p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8"
                     >
@@ -834,9 +834,9 @@ export function Tickets() {
                   </div>
                   <div className="grid grid-cols-3 items-center gap-4">
                     <label className="text-[11px] text-right font-medium text-muted-foreground uppercase leading-tight">Assigned to</label>
-                    <select 
+                    <select
                       value={newTicket.assignedTo}
-                      onChange={e => setNewTicket({...newTicket, assignedTo: e.target.value})}
+                      onChange={e => setNewTicket({ ...newTicket, assignedTo: e.target.value })}
                       className="col-span-2 p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green h-8"
                     >
                       <option value="">-- Select Member --</option>
@@ -855,13 +855,13 @@ export function Tickets() {
                     <span className="text-red-500">*</span> Short description
                   </label>
                   <div className="col-span-5 flex gap-2">
-                    <input 
+                    <input
                       required
                       value={newTicket.title}
-                      onChange={e => setNewTicket({...newTicket, title: e.target.value})}
-                      className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green h-8" 
+                      onChange={e => setNewTicket({ ...newTicket, title: e.target.value })}
+                      className="flex-grow p-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-sn-green h-8"
                     />
-                    <Button 
+                    <Button
                       type="button"
                       onClick={handleAIAssist}
                       disabled={isAiLoading}
@@ -873,10 +873,10 @@ export function Tickets() {
                 </div>
                 <div className="grid grid-cols-6 items-start gap-4">
                   <label className="text-[11px] text-right font-medium uppercase leading-tight mt-1">Description</label>
-                  <textarea 
+                  <textarea
                     rows={4}
                     value={newTicket.description}
-                    onChange={e => setNewTicket({...newTicket, description: e.target.value})}
+                    onChange={e => setNewTicket({ ...newTicket, description: e.target.value })}
                     className={`col-span-5 p-1.5 border rounded text-xs focus:ring-1 focus:ring-sn-green resize-none h-32 transition-all ${suggestedSolution ? 'border-purple-400 ring-1 ring-purple-300 bg-purple-50' : 'border-border'}`}
                     placeholder="Describe the issue in detail... or use Autofill with AI above"
                   />
@@ -900,16 +900,16 @@ export function Tickets() {
 
               {/* Modal Footer */}
               <div className="flex justify-end gap-3 pt-6 border-t border-border mt-8">
-                <Button 
-                  type="button" 
-                  variant="outline" 
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setIsModalOpen(false)}
                   className="px-6 h-8 text-[11px] font-bold uppercase tracking-wider"
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={isSubmitting || suggestedSolution !== null}
                   className="bg-sn-green text-sn-dark hover:bg-sn-green/90 px-8 h-8 text-[11px] font-bold uppercase tracking-wider shadow-sm disabled:opacity-50"
                 >

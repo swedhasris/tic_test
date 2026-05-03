@@ -17,13 +17,13 @@ export function Reports() {
 
     const isAgent = ROLE_HIERARCHY[profile.role as Role] >= ROLE_HIERARCHY["agent"];
     const ticketsRef = collection(db, "tickets");
-    const q = isAgent 
-      ? query(ticketsRef) 
+    const q = isAgent
+      ? query(ticketsRef)
       : query(ticketsRef, where("createdBy", "==", user.uid));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const tickets = snapshot.docs.map(doc => doc.data());
-      
+
       // Status Distribution
       const statusCounts: any = {};
       tickets.forEach((t: any) => {
@@ -43,7 +43,7 @@ export function Reports() {
       tickets.forEach((t: any) => {
         const resStatus = t.resolutionSlaStatus || "In Progress";
         const respStatus = t.responseSlaStatus || "In Progress";
-        
+
         if (resStatus === "Breached" || respStatus === "Breached") {
           slaCounts["Breached"]++;
         } else if (resStatus === "At Risk" || respStatus === "At Risk") {
@@ -135,7 +135,7 @@ export function Reports() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" fontSize={12} />
                 <YAxis fontSize={12} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ backgroundColor: "#fff", borderRadius: "8px", border: "1px solid #e2e8f0" }}
                 />
                 <Bar dataKey="count" fill="#81B532" radius={[4, 4, 0, 0]} />

@@ -28,11 +28,11 @@ function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0,
         setStatus("breached");
         const over = Math.abs(diff);
         const h = Math.floor(over / 3600000), m = Math.floor((over % 3600000) / 60000), s = Math.floor((over % 60000) / 1000);
-        setDisplayTime(`-${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
+        setDisplayTime(`-${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
       } else {
         setStatus(isPaused ? "paused" : "active");
         const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
-        setDisplayTime(`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`);
+        setDisplayTime(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
       }
     };
 
@@ -46,10 +46,10 @@ function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0,
       <span className="text-[9px] uppercase text-muted-foreground font-bold leading-none">{label}</span>
       <span className={cn(
         "text-[10px] font-mono font-bold leading-none",
-        status === "met"     ? "text-green-600" :
-        status === "breached"? "text-red-600" :
-        status === "waiting" ? "text-gray-400" :
-        status === "paused"  ? "text-orange-500" : "text-blue-600"
+        status === "met" ? "text-green-600" :
+          status === "breached" ? "text-red-600" :
+            status === "waiting" ? "text-gray-400" :
+              status === "paused" ? "text-orange-500" : "text-blue-600"
       )}>
         {displayTime}
       </span>
@@ -59,9 +59,9 @@ function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0,
 
 const PRIORITY_COLORS: Record<string, string> = {
   "1 - Critical": "#e74c3c",
-  "2 - High":     "#f39c12",
+  "2 - High": "#f39c12",
   "3 - Moderate": "#27ae60",
-  "4 - Low":      "#3498db",
+  "4 - Low": "#3498db",
 };
 
 export function Dashboard() {
@@ -86,7 +86,7 @@ export function Dashboard() {
 
   const now = Date.now();
   const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
-  const sevenDaysAgo  = now - 7  * 24 * 3600 * 1000;
+  const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
 
   const getTs = (t: any) => {
     const c = t.createdAt;
@@ -96,26 +96,26 @@ export function Dashboard() {
     return 0;
   };
 
-  const open    = tickets.filter(t => !["Resolved","Closed","Canceled"].includes(t.status ?? ""));
-  const closed  = tickets.filter(t => ["Resolved","Closed"].includes(t.status ?? ""));
+  const open = tickets.filter(t => !["Resolved", "Closed", "Canceled"].includes(t.status ?? ""));
+  const closed = tickets.filter(t => ["Resolved", "Closed"].includes(t.status ?? ""));
 
   // Stats
-  const criticalOpen   = open.filter(t => (t.priority ?? "").includes("Critical")).length;
-  const unassigned     = open.filter(t => !t.assignedTo).length;
-  const overdue        = open.filter(t => t.resolutionDeadline && new Date(t.resolutionDeadline).getTime() < now).length;
-  const openCount      = open.length;
-  const stale7         = open.filter(t => getTs(t) < sevenDaysAgo).length;
-  const older30        = open.filter(t => getTs(t) < thirtyDaysAgo).length;
+  const criticalOpen = open.filter(t => (t.priority ?? "").includes("Critical")).length;
+  const unassigned = open.filter(t => !t.assignedTo).length;
+  const overdue = open.filter(t => t.resolutionDeadline && new Date(t.resolutionDeadline).getTime() < now).length;
+  const openCount = open.length;
+  const stale7 = open.filter(t => getTs(t) < sevenDaysAgo).length;
+  const older30 = open.filter(t => getTs(t) < thirtyDaysAgo).length;
 
   // Group open by priority for bar chart
-  const priorityGroups = ["1 - Critical","2 - High","3 - Moderate","4 - Low"].map(p => ({
+  const priorityGroups = ["1 - Critical", "2 - High", "3 - Moderate", "4 - Low"].map(p => ({
     name: p.replace(" - ", "\n"),
     label: p,
     count: open.filter(t => t.priority === p).length,
   }));
 
   // Group older-30 by priority
-  const older30Groups = ["1 - Critical","2 - High","3 - Moderate","4 - Low"].map(p => ({
+  const older30Groups = ["1 - Critical", "2 - High", "3 - Moderate", "4 - Low"].map(p => ({
     name: p.replace(" - ", "\n"),
     label: p,
     count: open.filter(t => t.priority === p && getTs(t) < thirtyDaysAgo).length,
@@ -127,12 +127,12 @@ export function Dashboard() {
     .slice(0, 8);
 
   const statCards = [
-    { label: "Critical Open Incidents",        value: criticalOpen, color: "text-red-500 font-bold", link: "/tickets?filter=critical_open" },
-    { label: "Unassigned Incidents",           value: unassigned,   color: "text-foreground", link: "/tickets?filter=unassigned" },
-    { label: "Overdue Incidents",              value: overdue,      color: "text-red-600 font-black",    link: "/tickets?filter=overdue" },
-    { label: "Open Incidents",                 value: openCount,    color: "text-foreground", link: "/tickets?filter=open" },
-    { label: "Incidents not updated for 7 days", value: stale7,    color: "text-foreground", link: "/tickets?filter=stale_7" },
-    { label: "Open Incidents older than 30 Days", value: older30,  color: "text-foreground", link: "/tickets?filter=older_30" },
+    { label: "Critical Open Incidents", value: criticalOpen, color: "text-red-500 font-bold", link: "/tickets?filter=critical_open" },
+    { label: "Unassigned Incidents", value: unassigned, color: "text-foreground", link: "/tickets?filter=unassigned" },
+    { label: "Overdue Incidents", value: overdue, color: "text-red-600 font-black", link: "/tickets?filter=overdue" },
+    { label: "Open Incidents", value: openCount, color: "text-foreground", link: "/tickets?filter=open" },
+    { label: "Incidents not updated for 7 days", value: stale7, color: "text-foreground", link: "/tickets?filter=stale_7" },
+    { label: "Open Incidents older than 30 Days", value: older30, color: "text-foreground", link: "/tickets?filter=older_30" },
   ];
 
   return (
@@ -281,17 +281,17 @@ export function Dashboard() {
               ) : recent.map(t => {
                 const p = t.priority ?? "4 - Low";
                 const pColor = p.includes("Critical") ? "bg-red-600 text-white"
-                             : p.includes("High")     ? "bg-red-100 text-red-700"
-                             : p.includes("Moderate") ? "bg-orange-100 text-orange-700"
-                             : "bg-blue-100 text-blue-700";
-                
+                  : p.includes("High") ? "bg-red-100 text-red-700"
+                    : p.includes("Moderate") ? "bg-orange-100 text-orange-700"
+                      : "bg-blue-100 text-blue-700";
+
                 const isPaused = t.status === "On Hold" || t.status === "Waiting for Customer";
 
                 return (
                   <tr key={t.id} className="border-b border-border hover:bg-muted/5 transition-colors">
                     <td className="p-3">
                       <Link to={`/tickets/${t.id}`} className="font-mono text-[11px] font-bold text-blue-600 hover:underline">
-                        {t.number ?? t.id.slice(0,8)}
+                        {t.number ?? t.id.slice(0, 8)}
                       </Link>
                     </td>
                     <td className="p-3 text-[11px] font-medium max-w-[200px] truncate">{t.title ?? "—"}</td>
@@ -307,10 +307,10 @@ export function Dashboard() {
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col gap-1.5">
-                        <SLATimer 
-                          label="Resp" 
-                          deadline={t.responseDeadline} 
-                          metAt={t.firstResponseAt} 
+                        <SLATimer
+                          label="Resp"
+                          deadline={t.responseDeadline}
+                          metAt={t.firstResponseAt}
                           isPaused={isPaused}
                           onHoldStart={t.onHoldStart}
                           totalPausedTime={t.totalPausedTime}

@@ -128,22 +128,22 @@ export function SLAManagement() {
             <form onSubmit={handleCreatePolicy} className="p-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Policy Name</label>
-                <input 
+                <input
                   required
                   type="text"
                   className="w-full p-2 border border-border rounded-md text-sm outline-none focus:ring-2 focus:ring-sn-green"
                   value={newPolicy.name}
-                  onChange={(e) => setNewPolicy({...newPolicy, name: e.target.value})}
+                  onChange={(e) => setNewPolicy({ ...newPolicy, name: e.target.value })}
                   placeholder="e.g., High Priority Network SLA"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Priority</label>
-                  <select 
+                  <select
                     className="w-full p-2 border border-border rounded-md text-sm outline-none focus:ring-2 focus:ring-sn-green"
                     value={newPolicy.priority}
-                    onChange={(e) => setNewPolicy({...newPolicy, priority: e.target.value})}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, priority: e.target.value })}
                   >
                     {["1 - Critical", "2 - High", "3 - Moderate", "4 - Low"].map(p => (
                       <option key={p} value={p}>{p}</option>
@@ -152,10 +152,10 @@ export function SLAManagement() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Category</label>
-                  <select 
+                  <select
                     className="w-full p-2 border border-border rounded-md text-sm outline-none focus:ring-2 focus:ring-sn-green"
                     value={newPolicy.category}
-                    onChange={(e) => setNewPolicy({...newPolicy, category: e.target.value})}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, category: e.target.value })}
                   >
                     {["Inquiry / Help", "Software", "Hardware", "Network", "Database"].map(c => (
                       <option key={c} value={c}>{c}</option>
@@ -166,22 +166,22 @@ export function SLAManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Response Time (Hours)</label>
-                  <input 
+                  <input
                     required
                     type="number"
                     className="w-full p-2 border border-border rounded-md text-sm outline-none focus:ring-2 focus:ring-sn-green"
                     value={newPolicy.responseTimeHours}
-                    onChange={(e) => setNewPolicy({...newPolicy, responseTimeHours: parseInt(e.target.value)})}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, responseTimeHours: parseInt(e.target.value) })}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Resolution Time (Hours)</label>
-                  <input 
+                  <input
                     required
                     type="number"
                     className="w-full p-2 border border-border rounded-md text-sm outline-none focus:ring-2 focus:ring-sn-green"
                     value={newPolicy.resolutionTimeHours}
-                    onChange={(e) => setNewPolicy({...newPolicy, resolutionTimeHours: parseInt(e.target.value)})}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, resolutionTimeHours: parseInt(e.target.value) })}
                   />
                 </div>
               </div>

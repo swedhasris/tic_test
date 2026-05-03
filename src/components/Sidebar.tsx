@@ -43,7 +43,9 @@ import { cn } from "@/lib/utils";
 import { db } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useTickets } from "../contexts/TicketsContext";
+import { useBranding } from "../contexts/BrandingContext";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { Palette } from "lucide-react";
 
 interface MenuItem {
   icon?: any;
@@ -58,7 +60,8 @@ interface MenuItem {
 
 export function Sidebar() {
   const { user, profile, signOut } = useAuth();
-  const { openTicketsCount } = useTickets();
+  const { openTicketsCount, assignedToMeCount } = useTickets();
+  const { branding } = useBranding();
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem("sn-dark-mode");
     return saved ? saved === "true" : false;
@@ -116,7 +119,7 @@ export function Sidebar() {
       label: "Incident",
       items: [
         { icon: PlusCircle, label: "Create New Incident", path: "/tickets?action=new" },
-        { icon: UserCheck, label: "Assigned to Me", path: "/tickets?filter=assigned_to_me" },
+        { icon: UserCheck, label: "Assigned to Me", path: "/tickets?filter=assigned_to_me", badge: assignedToMeCount },
         { icon: FolderOpen, label: "Open Incidents", path: "/tickets?filter=open", badge: openTicketsCount },
         { icon: UserMinus, label: "Open - Unassigned", path: "/tickets?filter=unassigned" },
         { icon: CheckCircle2, label: "Resolved Incidents", path: "/tickets?filter=resolved" },
@@ -142,6 +145,7 @@ export function Sidebar() {
         { icon: CheckCircle2, label: "Approved Tickets", path: "/approved-tickets" },
         { icon: ClipboardList, label: "Timesheet Approvals", path: "/timesheet/approvals" },
         { icon: CheckCircle2, label: "Approved Timesheets", path: "/timesheet/reports?status=Approved" },
+        { icon: Palette, label: "Branding", path: "/branding", superAdminOnly: true },
       ]
     }
   ];
@@ -186,8 +190,18 @@ export function Sidebar() {
       <div className="p-4 flex items-center justify-between border-b border-white/10 h-16">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-sn-green rounded flex items-center justify-center font-bold text-sn-dark">C</div>
-            <span className="text-xl font-bold tracking-tight">Connect</span>
+            {branding.logoBase64 ? (
+              <img 
+                src={branding.logoBase64} 
+                alt="Logo" 
+                className="w-8 h-8 rounded object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 bg-sn-green rounded flex items-center justify-center font-bold text-sn-dark">
+                {branding.companyName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="text-xl font-bold tracking-tight">{branding.companyName}</span>
           </div>
         )}
         <button

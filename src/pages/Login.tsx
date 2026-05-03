@@ -63,7 +63,7 @@ export function Login() {
     setDemoLoading(role);
     try {
       const uid       = `demo_${role}_${Date.now()}`;
-      const name      = `Demo ${ROLE_LABELS[role]}`;
+      const name      = ROLE_LABELS[role];
       const emailAddr = `demo-${role}@connectit.local`;
       const demoProfile = { uid, name, email: emailAddr, role, isDemo: true };
 
@@ -173,11 +173,11 @@ export function Login() {
           </form>
         </div>
 
-        {/* ── Demo Role Panel ── */}
+        {/* ── Role Panel ── */}
         <div className="w-80 bg-white rounded-2xl shadow-2xl overflow-hidden">
           <div className="bg-gradient-to-br from-sn-dark to-gray-800 p-6 text-white text-center">
             <div className="text-2xl mb-1">🚀</div>
-            <h2 className="font-bold text-lg">Try a Demo Role</h2>
+            <h2 className="font-bold text-lg">Quick Login</h2>
             <p className="text-white/60 text-xs mt-1">No password needed — instant access</p>
           </div>
 
@@ -202,7 +202,7 @@ export function Login() {
             ))}
 
             <p className="text-[10px] text-center text-muted-foreground pt-2 border-t border-border">
-              Demo sessions use localStorage auth.<br />All data is shared via Firestore.
+              Quick sessions use localStorage auth.<br />All data is shared via Firestore.
             </p>
           </div>
         </div>

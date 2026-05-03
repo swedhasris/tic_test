@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { TicketsProvider } from "./contexts/TicketsContext";
+import { BrandingProvider } from "./contexts/BrandingContext";
 import { Sidebar } from "./components/Sidebar";
 import { AppNavbar } from "./components/AppNavbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -39,6 +40,8 @@ const ApprovedTickets = lazy(() => import("./pages/ApprovedTickets").then(m => (
 const Companies = lazy(() => import("./pages/Companies").then(m => ({ default: m.Companies })));
 const TimesheetApprovals = lazy(() => import("./pages/TimesheetApprovals").then(m => ({ default: m.TimesheetApprovals })));
 const Groups = lazy(() => import("./pages/Groups").then(m => ({ default: m.Groups })));
+const ClearUsers = lazy(() => import("./pages/ClearUsers").then(m => ({ default: m.ClearUsers })));
+const BrandingSettings = lazy(() => import("./pages/BrandingSettings").then(m => ({ default: m.BrandingSettings })));
 
 function LoadingScreen() {
   return (
@@ -103,9 +106,10 @@ function AppBody() {
   }, [user]);
 
   return (
-    <Router>
-      <Suspense fallback={<LoadingScreen />}>
-        <Routes>
+    <BrandingProvider>
+      <Router>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route
@@ -332,10 +336,27 @@ function AppBody() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/clear-users"
+            element={
+              <ProtectedRoute>
+                <ClearUsers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/branding"
+            element={
+              <ProtectedRoute>
+                <BrandingSettings />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Suspense>
-    </Router>
+          </Routes>
+        </Suspense>
+      </Router>
+    </BrandingProvider>
   );
 }
 

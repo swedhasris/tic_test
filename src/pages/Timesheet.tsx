@@ -9,7 +9,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/firebase";
 import {
   collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, orderBy, onSnapshot
+  doc, serverTimestamp, orderBy, onSnapshot, onSnapshot as listenToDoc
 } from "firebase/firestore";
 import { Link, useParams, useNavigate } from "react-router-dom";
 
@@ -48,6 +48,12 @@ function getMonday(date: Date): Date {
   d.setDate(diff);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function formatTimeFromSeconds(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 function formatDate(d: Date): string { return d.toISOString().split("T")[0]; }
 function formatTimestamp(d: Date): string {
@@ -132,6 +138,10 @@ export function Timesheet() {
   const [timeCards, setTimeCards] = useState<any[]>([]);
   const [editingCard, setEditingCard] = useState<any>(null);
 
+  // Active timer state
+  const [activeTimer, setActiveTimer] = useState<any>(null);
+  const [liveElapsedTime, setLiveElapsedTime] = useState(0);
+
   // Overview fields
   const [company, setCompany] = useState("");
   const [entryDate, setEntryDate] = useState(formatDate(new Date()));
@@ -172,8 +182,8 @@ export function Timesheet() {
   const [waMessage, setWaMessage] = useState("");
   const [waAutoSync, setWaAutoSync] = useState(true);
 
-  // Assigned tickets
-  const [assignedTickets, setAssignedTickets] = useState<any[]>([]);
+  // Open tickets
+  const [openTickets, setOpenTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
 
   const { weekStart: urlWeekStart } = useParams();
@@ -186,24 +196,66 @@ export function Timesheet() {
 
   useEffect(() => { loadData(); }, [user, weekStart]);
 
-  /* ── Fetch assigned tickets ── */
+  /* ── Listen for active timer from Firestore ── */
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = listenToDoc(doc(db, "users", user.uid), (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const userData = docSnapshot.data();
+        setActiveTimer(userData.activeTimer || null);
+      }
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  /* ── Update live elapsed time every second when timer is running ── */
+  useEffect(() => {
+    if (!activeTimer?.isRunning) {
+      setLiveElapsedTime(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const startTime = new Date(activeTimer.startTime);
+      const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+      setLiveElapsedTime(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeTimer]);
+
+  /* ── Fetch open tickets ── */
   useEffect(() => {
     if (!user) return;
     setTicketsLoading(true);
-    const q = query(
-      collection(db, "tickets"),
-      where("assignedTo", "==", user.uid),
-      where("status", "not-in", ["Resolved", "Closed"]),
-      orderBy("createdAt", "desc")
-    );
+    console.log("[Timesheet] Fetching open tickets...");
+
+    // Fetch all tickets and filter client-side for open (not resolved/closed)
+    const q = query(collection(db, "tickets"));
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tickets = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAssignedTickets(tickets);
+      console.log("[Timesheet] Got tickets snapshot:", snapshot.docs.length);
+      let tickets: any[] = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Filter: not resolved/closed (all open tickets)
+      tickets = tickets.filter(t =>
+        t.status !== "Resolved" && t.status !== "Closed" && t.status !== "Canceled"
+      );
+      // Sort client-side by createdAt
+      tickets.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+        const bTime = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+        return bTime.getTime() - aTime.getTime();
+      });
+      setOpenTickets(tickets);
       setTicketsLoading(false);
     }, (error) => {
-      console.error("Error fetching assigned tickets:", error);
+      console.error("[Timesheet] Error fetching tickets:", error);
       setTicketsLoading(false);
     });
+
     return unsubscribe;
   }, [user]);
 
@@ -350,11 +402,21 @@ export function Timesheet() {
 
   async function submitTimesheet() {
     if (!confirm("Submit this timesheet for approval? You won't be able to edit it after.")) return;
+    if (!timesheet?.id) { alert("Timesheet not found. Please try again."); return; }
     if (timeCards.length === 0) { alert("Cannot submit an empty timesheet."); return; }
-    await updateDoc(doc(db, "timesheets", timesheet.id), {
-      status: "Submitted", submittedAt: serverTimestamp(), updatedAt: serverTimestamp()
-    });
-    loadData();
+
+    try {
+      await updateDoc(doc(db, "timesheets", timesheet.id), {
+        status: "Submitted",
+        submittedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      alert("Timesheet submitted successfully!");
+      loadData();
+    } catch (error: any) {
+      console.error("Error submitting timesheet:", error);
+      alert(`Failed to submit timesheet: ${error.message || "Unknown error"}`);
+    }
   }
 
   function handleSendWhatsApp() {
@@ -416,46 +478,55 @@ export function Timesheet() {
 
 
 
-      {/* ═══ ASSIGNED TICKETS SECTION ═══ */}
-      <Section title="Assigned Tickets" icon={<Ticket className="w-4 h-4" />} defaultOpen={true}>
+      {/* ═══ OPEN TICKETS SECTION ═══ */}
+      <Section title="Open Tickets" icon={<Ticket className="w-4 h-4" />} defaultOpen={true}>
         <div className="p-5">
           {ticketsLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 border-2 border-sn-green border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : assignedTickets.length === 0 ? (
+          ) : openTickets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              No tickets assigned to you
+              No open tickets
             </div>
           ) : (
-            <div className="space-y-3">
-              {assignedTickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  onClick={() => navigate(`/tickets/${ticket.id}`)}
-                  className="flex items-center gap-4 p-3 border border-border rounded-lg hover:bg-muted/30 cursor-pointer transition-colors"
-                >
-                  <div className="flex-shrink-0">
-                    <Ticket className="w-5 h-5 text-sn-green" />
-                  </div>
-                  <div className="flex-grow min-w-0">
-                    <div className="font-semibold text-sm truncate">{ticket.title || ticket.ticketNumber}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {ticket.ticketNumber} · {ticket.category} · {ticket.status}
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {openTickets.map((ticket, idx) => {
+                const incidentNumber = ticket.number || ticket.ticketNumber || `INC000${idx + 1}`;
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => navigate(`/tickets/${ticket.id}`)}
+                    className="flex items-center gap-4 p-3 border border-border rounded-lg hover:bg-muted/30 cursor-pointer transition-colors"
+                  >
+                    <div className="flex-shrink-0">
+                      <div className="w-10 h-10 bg-sn-green/10 rounded-lg flex items-center justify-center">
+                        <span className="text-[10px] font-bold text-sn-green">{incidentNumber.slice(0, 7)}</span>
+                      </div>
+                    </div>
+                    <div className="flex-grow min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-sn-green">{incidentNumber}</span>
+                        <span className="text-xs text-muted-foreground truncate">{ticket.title}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {ticket.category} · {ticket.status}
+                        {ticket.assignedToName && ` · Assigned: ${ticket.assignedToName}`}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        ticket.priority?.includes("Critical") ? "bg-red-600 text-white" :
+                        ticket.priority?.includes("High") ? "bg-red-100 text-red-700" :
+                        ticket.priority?.includes("Moderate") ? "bg-orange-100 text-orange-700" :
+                        "bg-blue-100 text-blue-700"
+                      }`}>
+                        {ticket.priority || "4 - Low"}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      ticket.priority?.includes("1") ? "bg-red-100 text-red-700" :
-                      ticket.priority?.includes("2") ? "bg-orange-100 text-orange-700" :
-                      ticket.priority?.includes("3") ? "bg-yellow-100 text-yellow-700" :
-                      "bg-gray-100 text-gray-700"
-                    }`}>
-                      {ticket.priority || "4 - Low"}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -570,6 +641,33 @@ export function Timesheet() {
               </button>
 
               {/* Existing Time Entries */}
+              {activeTimer?.isRunning && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Clock className="w-5 h-5 text-blue-600 animate-pulse" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-blue-900">Timer Running</h4>
+                        <p className="text-xs text-blue-700">
+                          Incident: {activeTimer.ticketNumber} · Started: {new Date(activeTimer.startTime).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-mono font-bold text-blue-700">{formatTimeFromSeconds(liveElapsedTime)}</div>
+                      <button
+                        onClick={() => navigate(`/tickets/${activeTimer.ticketId}`)}
+                        className="text-xs text-blue-600 hover:underline font-medium"
+                      >
+                        Go to incident →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {timeCards.length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Saved Entries ({timeCards.length})</h4>
@@ -594,7 +692,9 @@ export function Timesheet() {
                             <td className="p-2">{card.entryDate}</td>
                             <td className="p-2">{card.startTime || "-"}</td>
                             <td className="p-2">{card.endTime || "-"}</td>
-                            <td className="p-2 font-bold">{(card.hoursWorked || 0).toFixed(2)}</td>
+                            <td className="p-2 font-bold">
+  {card.elapsedSeconds ? formatTimeFromSeconds(card.elapsedSeconds) : `${(card.hoursWorked || 0).toFixed(2)} hrs`}
+</td>
                             <td className="p-2">{card.workType || card.task || "-"}</td>
                             <td className="p-2">{card.billable || "-"}</td>
                             <td className="p-2 max-w-[200px] truncate">{card.description || "-"}</td>

@@ -17,6 +17,7 @@ interface Ticket {
 interface TicketsContextType {
   tickets: Ticket[];
   openTicketsCount: number;
+  assignedToMeCount: number;
   loading: boolean;
   error: string | null;
 }
@@ -69,10 +70,15 @@ export function TicketsProvider({ children }: { children: React.ReactNode }) {
   }, [user, profile]);
 
   const openTicketsCount = tickets.length;
+  const assignedToMeCount = tickets.filter(t => 
+    t.assignedTo === user?.uid || 
+    t.assignedTo === profile?.name
+  ).length;
 
   const value: TicketsContextType = {
     tickets,
     openTicketsCount,
+    assignedToMeCount,
     loading,
     error,
   };

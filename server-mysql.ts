@@ -88,7 +88,7 @@ async function escalateStaleTickets() {
     const tickets = await query(
       "SELECT * FROM tickets WHERE status NOT IN ('Resolved', 'Closed', 'Canceled')"
     );
-    
+
     console.log(`[SLA Engine] Fetched ${tickets.length} tickets.`);
 
     for (const ticket of tickets) {
@@ -98,11 +98,11 @@ async function escalateStaleTickets() {
       const historyEntries: any[] = [];
 
       // Response SLA Check
-      if (ticket.response_deadline && !ticket.first_response_at && 
-          ticket.response_sla_status !== 'Breached' && ticket.response_sla_status !== 'Completed') {
+      if (ticket.response_deadline && !ticket.first_response_at &&
+        ticket.response_sla_status !== 'Breached' && ticket.response_sla_status !== 'Completed') {
         const deadline = new Date(ticket.response_deadline).getTime();
         const diff = deadline - now.getTime();
-        
+
         if (diff <= 0) {
           updates.response_sla_status = 'Breached';
           historyEntries.push({
@@ -118,8 +118,8 @@ async function escalateStaleTickets() {
       }
 
       // Resolution SLA Check
-      if (ticket.resolution_deadline && !ticket.resolved_at && 
-          ticket.resolution_sla_status !== 'Breached' && ticket.resolution_sla_status !== 'Completed') {
+      if (ticket.resolution_deadline && !ticket.resolved_at &&
+        ticket.resolution_sla_status !== 'Breached' && ticket.resolution_sla_status !== 'Completed') {
         const deadline = new Date(ticket.resolution_deadline).getTime();
         const diff = deadline - now.getTime();
 
@@ -262,15 +262,15 @@ async function startServer() {
       if (tickets.length === 0) {
         return res.status(404).json({ error: "Ticket not found" });
       }
-      
+
       const ticket = tickets[0];
-      
+
       // Get comments
       const comments = await query("SELECT * FROM comments WHERE ticket_id = ? ORDER BY created_at ASC", [ticket.id]);
-      
+
       // Get history
       const history = await query("SELECT * FROM ticket_history WHERE ticket_id = ? ORDER BY timestamp DESC", [ticket.id]);
-      
+
       res.json({
         id: ticket.id.toString(),
         ...ticket,
@@ -363,7 +363,7 @@ async function startServer() {
   app.put("/api/tickets/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      
+
       // Get current ticket
       const tickets = await query("SELECT * FROM tickets WHERE id = ?", [id]);
       if (tickets.length === 0) {
@@ -503,7 +503,7 @@ async function startServer() {
   app.post("/api/users", async (req, res) => {
     try {
       const { uid, name, email, role, phone, password_hash } = req.body;
-      
+
       const result = await execute(
         "INSERT INTO users (uid, name, email, role, phone, password_hash) VALUES (?, ?, ?, ?, ?, ?)",
         [uid, name, email, role || 'user', phone, password_hash]
@@ -520,7 +520,7 @@ async function startServer() {
   app.put("/api/users/:uid", async (req, res) => {
     try {
       const { name, email, role, phone, is_active } = req.body;
-      
+
       await execute(
         "UPDATE users SET name = ?, email = ?, role = ?, phone = ?, is_active = ? WHERE uid = ?",
         [name, email, role, phone, is_active, req.params.uid]
@@ -538,7 +538,7 @@ async function startServer() {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      
+
       // Simple hash function (same as frontend)
       function simpleHash(str: string): string {
         let hash = 0;
@@ -551,7 +551,7 @@ async function startServer() {
       }
 
       const users = await query("SELECT * FROM users WHERE email = ? AND is_active = TRUE", [email.toLowerCase().trim()]);
-      
+
       if (users.length === 0) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
@@ -619,7 +619,7 @@ async function startServer() {
 
       const raw = (result.text || "").replace(/```json\s*/g, "").replace(/```/g, "").trim();
       let classification: any = { category: "Inquiry / Help", priority: "Medium" };
-      try { classification = JSON.parse(raw); } catch {}
+      try { classification = JSON.parse(raw); } catch { }
 
       res.json(classification);
     } catch (error: any) {

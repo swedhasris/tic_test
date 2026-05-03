@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection, addDoc, query, orderBy, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, addDoc, query, orderBy, getDocs, where, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { ROLE_HIERARCHY, Role } from "../lib/roles";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Send, History, MessageSquare, Save, Trash2, CheckCircle2, Clock, Plus, Star } from "lucide-react";
+import { ChevronLeft, Send, History, MessageSquare, Save, Trash2, CheckCircle2, Clock, Plus, Star, Play, Square, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SLATimer } from "../components/SLATimer";
 import { useServiceCatalog } from "../lib/serviceCatalog";
@@ -25,6 +25,15 @@ export function TicketDetail() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [agents, setAgents] = useState<any[]>([]);
 
+  // Timer state
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [timerStartTime, setTimerStartTime] = useState<Date | null>(null);
+  const timerStartTimeRef = useRef<Date | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [showTimerModal, setShowTimerModal] = useState(false);
+  const [workDescription, setWorkDescription] = useState("");
+  const [workSummary, setWorkSummary] = useState("");
+
   const visibleCategories = categories.filter((item) => item.status === 'active');
   const visibleSubcategories = subcategories.filter(s => s.categoryId === editedTicket?.categoryId && s.status === 'active');
   const visibleProviders = serviceProviders.filter(p => p.subcategoryId === editedTicket?.subcategoryId && p.status === 'active');
@@ -35,6 +44,46 @@ export function TicketDetail() {
       setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((u: any) => ROLE_HIERARCHY[u.role as Role] >= ROLE_HIERARCHY["agent"]));
     }).catch(() => { });
   }, []);
+
+  // Load active timer state from Firestore on mount
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const userData = docSnapshot.data();
+        const activeTimer = userData.activeTimer;
+        if (activeTimer && activeTimer.isRunning) {
+          const startTime = new Date(activeTimer.startTime);
+          const now = new Date();
+          const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+          setIsTimerRunning(true);
+          setTimerStartTime(startTime);
+          timerStartTimeRef.current = startTime;
+          setElapsedTime(elapsed);
+        } else {
+          setIsTimerRunning(false);
+          // Don't clear timerStartTime here - preserve it for saving
+          setElapsedTime(0);
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  // Timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isTimerRunning && timerStartTime) {
+      interval = setInterval(() => {
+        const now = new Date();
+        const elapsed = now.getTime() - timerStartTime.getTime();
+        setElapsedTime(Math.floor(elapsed / 1000)); // in seconds
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning, timerStartTime]);
 
   useEffect(() => {
     if (!id) return;
@@ -269,6 +318,164 @@ export function TicketDetail() {
     setEditedTicket((prev: any) => ({ ...prev, [field]: value }));
   };
 
+  // Timer functions
+  const handleStartTimer = async () => {
+    const startTime = new Date();
+    setIsTimerRunning(true);
+    setTimerStartTime(startTime);
+    timerStartTimeRef.current = startTime;
+    setElapsedTime(0);
+
+    // Save active timer state to Firestore for real-time sync
+    try {
+      await setDoc(doc(db, "users", user.uid), {
+        activeTimer: {
+          ticketId: ticket.id,
+          ticketNumber: ticket.number,
+          startTime: startTime.toISOString(),
+          isRunning: true
+        }
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error saving active timer state:", error);
+    }
+  };
+
+  const handleStopTimer = async () => {
+    setIsTimerRunning(false);
+    setShowTimerModal(true);
+
+    // Clear active timer state from Firestore
+    try {
+      await setDoc(doc(db, "users", user.uid), {
+        activeTimer: null
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error clearing active timer state:", error);
+    }
+  };
+
+  const formatElapsedTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleViewTimer = () => {
+    // Navigate to timesheet or show current time entries
+    navigate("/timesheet");
+  };
+
+  const handleSaveTimeEntry = async () => {
+    // Use the ref to get the start time, as it persists even when state changes
+    const startTimeToSave = timerStartTimeRef.current || timerStartTime;
+    if (!user || !ticket || !startTimeToSave) {
+      alert("Timer start time not found. Please try starting the timer again.");
+      return;
+    }
+
+    try {
+      // Calculate hours from seconds
+      const hours = (elapsedTime / 3600).toFixed(2);
+
+      // Get current week's Monday
+      const now = new Date();
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(now);
+      monday.setDate(diff);
+      monday.setHours(0, 0, 0, 0);
+      const weekStart = monday.toISOString().split("T")[0];
+
+      // Find or create timesheet for this week
+      const timesheetQuery = query(
+        collection(db, "timesheets"),
+        where("userId", "==", user.uid),
+        where("weekStart", "==", weekStart)
+      );
+      const timesheetSnapshot = await getDocs(timesheetQuery);
+
+      let timesheetId: string;
+      if (timesheetSnapshot.empty) {
+        // Create new timesheet
+        const newTimesheet = await addDoc(collection(db, "timesheets"), {
+          userId: user.uid,
+          userName: profile?.name || user.email,
+          weekStart,
+          status: "Draft",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        timesheetId = newTimesheet.id;
+      } else {
+        timesheetId = timesheetSnapshot.docs[0].id;
+      }
+
+      // Add time card entry
+      await addDoc(collection(db, "timesheets", timesheetId, "timeCards"), {
+        ticketId: ticket.id,
+        ticketNumber: ticket.number,
+        task: workSummary || "Ticket Work",
+        description: workDescription,
+        date: new Date().toISOString().split("T")[0],
+        startTime: startTimeToSave.toISOString(),
+        endTime: new Date().toISOString(),
+        actualHours: parseFloat(hours),
+        elapsedSeconds: elapsedTime,
+        workType: "Remote",
+        billable: "Billable",
+        createdAt: serverTimestamp()
+      });
+
+      // Update timesheet updatedAt
+      await updateDoc(doc(db, "timesheets", timesheetId), {
+        updatedAt: serverTimestamp()
+      });
+
+      // Reset timer state
+      setIsTimerRunning(false);
+      setTimerStartTime(null);
+      timerStartTimeRef.current = null;
+      setElapsedTime(0);
+      setShowTimerModal(false);
+      setWorkDescription("");
+      setWorkSummary("");
+
+      // Clear active timer from Firestore
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          activeTimer: null
+        }, { merge: true });
+      } catch (error) {
+        console.error("Error clearing active timer:", error);
+      }
+
+      alert(`Time entry saved! ${hours} hours added to timesheet.`);
+    } catch (error: any) {
+      console.error("Error saving time entry:", error);
+      alert(`Failed to save time entry: ${error.message}`);
+    }
+  };
+
+  const handleCancelTimer = async () => {
+    setIsTimerRunning(false);
+    setTimerStartTime(null);
+    timerStartTimeRef.current = null;
+    setElapsedTime(0);
+    setShowTimerModal(false);
+    setWorkDescription("");
+    setWorkSummary("");
+
+    // Clear active timer state from Firestore
+    try {
+      await setDoc(doc(db, "users", user.uid), {
+        activeTimer: null
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error clearing active timer state:", error);
+    }
+  };
+
   const formatDate = (date: any) => {
     if (!date) return "-";
     if (typeof date.toDate === "function") return date.toDate().toLocaleString();
@@ -321,6 +528,45 @@ export function TicketDetail() {
             />
           </div>
           <div className="flex items-center gap-2">
+            {/* Timer Display */}
+            {isTimerRunning && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg">
+                <Clock className="w-4 h-4 text-red-600 animate-pulse" />
+                <span className="font-mono text-sm font-bold text-red-700">{formatElapsedTime(elapsedTime)}</span>
+              </div>
+            )}
+
+            {/* Timer Buttons */}
+            {!isTimerRunning ? (
+              <Button
+                size="sm"
+                onClick={handleStartTimer}
+                className="h-8 px-4 font-bold bg-blue-600 text-white shadow-md hover:bg-blue-700"
+              >
+                <Play className="w-3 h-3 mr-1.5" />
+                Start
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleStopTimer}
+                className="h-8 px-4 font-bold bg-red-600 text-white shadow-md hover:bg-red-700"
+              >
+                <Square className="w-3 h-3 mr-1.5" />
+                Stop
+              </Button>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleViewTimer}
+              className="h-8 px-4 font-bold border-border bg-white text-sn-dark hover:bg-gray-50"
+            >
+              <Eye className="w-3 h-3 mr-1.5" />
+              View
+            </Button>
+
             <Button variant="outline" size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold border-border bg-white text-sn-dark">Update</Button>
             <Button size="sm" onClick={handleUpdate} disabled={isUpdating} className="h-8 px-4 font-bold bg-sn-green text-sn-dark shadow-sm hover:bg-sn-green/90">Submit</Button>
           </div>
@@ -703,6 +949,73 @@ export function TicketDetail() {
           )}
         </div>
       </div>
+
+      {/* Timer Modal */}
+      {showTimerModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold">Add Time Entry</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Incident: {ticket?.number} · Time: {formatElapsedTime(elapsedTime)}
+                  </p>
+                </div>
+                <button onClick={handleCancelTimer} className="text-muted-foreground hover:text-foreground">
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Description Input */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
+                  Description <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={workDescription}
+                  onChange={(e) => setWorkDescription(e.target.value)}
+                  className="w-full p-3 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] resize-none"
+                  placeholder="Describe the work you did on this incident..."
+                />
+              </div>
+
+              {/* Summary Input */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
+                  Summary
+                </label>
+                <input
+                  type="text"
+                  value={workSummary}
+                  onChange={(e) => setWorkSummary(e.target.value)}
+                  className="w-full p-3 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Brief summary of the work..."
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-border flex items-center justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={handleCancelTimer}
+                className="h-10 px-6 font-bold border-border text-sn-dark"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveTimeEntry}
+                disabled={!workDescription.trim()}
+                className="h-10 px-6 font-bold bg-blue-600 text-white shadow-md hover:bg-blue-700"
+              >
+                Save to Timesheet
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
