@@ -26,7 +26,7 @@ export function Groups() {
   const [memberSearch, setMemberSearch] = useState("");
 
   useEffect(() => {
-    const unsubGroups = onSnapshot(collection(db, "groups"), snap => 
+    const unsubGroups = onSnapshot(collection(db, "settings_groups"), snap => 
       setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     );
     const unsubUsers = onSnapshot(collection(db, "users"), snap => 
@@ -40,20 +40,21 @@ export function Groups() {
     try {
       if (selectedGroup) {
         const batch = writeBatch(db);
-        batch.update(doc(db, "groups", selectedGroup.id), { 
+        batch.update(doc(db, "settings_groups", selectedGroup.id), { 
           name: form.name, 
           description: form.description,
           email: form.email 
         });
         await batch.commit();
       } else {
-        const newRef = doc(collection(db, "groups"));
+        const newRef = doc(collection(db, "settings_groups"));
         await setDoc(newRef, {
           name: form.name,
           description: form.description,
           email: form.email,
           memberIds: [],
           memberCount: 0,
+          status: 'active',
           createdAt: new Date().toISOString()
         });
       }
@@ -72,7 +73,7 @@ export function Groups() {
       (group.memberIds || []).forEach((userId: string) => {
         batch.update(doc(db, "users", userId), { groupIds: arrayRemove(group.id) });
       });
-      batch.delete(doc(db, "groups", group.id));
+      batch.delete(doc(db, "settings_groups", group.id));
       await batch.commit();
     } catch (e) {
       console.error(e);
@@ -90,7 +91,7 @@ export function Groups() {
 
     try {
       const batch = writeBatch(db);
-      batch.update(doc(db, "groups", selectedGroup.id), { 
+      batch.update(doc(db, "settings_groups", selectedGroup.id), { 
         memberIds: arrayUnion(userId),
         memberCount: updatedMemberIds.length
       });
@@ -115,7 +116,7 @@ export function Groups() {
 
     try {
       const batch = writeBatch(db);
-      batch.update(doc(db, "groups", selectedGroup.id), { 
+      batch.update(doc(db, "settings_groups", selectedGroup.id), { 
         memberIds: arrayRemove(userId),
         memberCount: updatedMemberIds.length
       });

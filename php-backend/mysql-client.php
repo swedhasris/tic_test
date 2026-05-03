@@ -262,6 +262,55 @@ class UserModel {
 }
 
 /**
+ * Category Model
+ */
+class CategoryModel {
+    private PDO $db;
+    public function __construct() { $this->db = MySQLClient::getConnection(); }
+    public function getAll(): array { return $this->db->query("SELECT * FROM categories ORDER BY name")->fetchAll(); }
+    public function create(string $name): bool { return $this->db->prepare("INSERT INTO categories (name) VALUES (?)")->execute([$name]); }
+    public function delete(int $id): bool { return $this->db->prepare("DELETE FROM categories WHERE id = ?")->execute([$id]); }
+}
+
+/**
+ * Subcategory Model
+ */
+class SubcategoryModel {
+    private PDO $db;
+    public function __construct() { $this->db = MySQLClient::getConnection(); }
+    public function getAll(): array { return $this->db->query("SELECT * FROM subcategories ORDER BY name")->fetchAll(); }
+    public function create(string $name): bool { return $this->db->prepare("INSERT INTO subcategories (name) VALUES (?)")->execute([$name]); }
+    public function delete(int $id): bool { return $this->db->prepare("DELETE FROM subcategories WHERE id = ?")->execute([$id]); }
+}
+
+/**
+ * Provider Model
+ */
+class ProviderModel {
+    private PDO $db;
+    public function __construct() { $this->db = MySQLClient::getConnection(); }
+    public function getAll(): array { return $this->db->query("SELECT * FROM providers ORDER BY name")->fetchAll(); }
+    public function create(string $name): bool { return $this->db->prepare("INSERT INTO providers (name) VALUES (?)")->execute([$name]); }
+    public function delete(int $id): bool { return $this->db->prepare("DELETE FROM providers WHERE id = ?")->execute([$id]); }
+}
+
+/**
+ * Group Model
+ */
+class GroupModel {
+    private PDO $db;
+    public function __construct() { $this->db = MySQLClient::getConnection(); }
+    public function getAll(): array { return $this->db->query("SELECT * FROM groups ORDER BY name")->fetchAll(); }
+    public function create(string $name, string $desc = ''): bool { return $this->db->prepare("INSERT INTO groups (name, description) VALUES (?, ?)")->execute([$name, $desc]); }
+    public function delete(int $id): bool { return $this->db->prepare("DELETE FROM groups WHERE id = ?")->execute([$id]); }
+    public function getMembers(int $groupId): array {
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE group_id = ? ORDER BY name");
+        $stmt->execute([$groupId]);
+        return $stmt->fetchAll();
+    }
+}
+
+/**
  * SLA Policy Model
  */
 class SLAPolicyModel {

@@ -238,21 +238,14 @@ function calculateSLAStatus($deadline, $metAt, $isPaused) {
                     </div>
                     <div class="grid grid-cols-3 items-center gap-4">
                         <label class="text-[11px] text-right font-medium text-muted-foreground uppercase">Category</label>
-                        <select name="category" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
-                            <option>Inquiry / Help</option>
-                            <option>Software</option>
-                            <option>Hardware</option>
-                            <option>Network</option>
-                            <option>Database</option>
+                        <select name="category" id="ticket_category" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
+                            <option value="">-- Loading... --</option>
                         </select>
                     </div>
                     <div class="grid grid-cols-3 items-center gap-4">
                         <label class="text-[11px] text-right font-medium text-muted-foreground uppercase">Subcategory</label>
-                        <select name="subcategory" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
-                            <option value="">-- None --</option>
-                            <option>Antivirus</option>
-                            <option>Email</option>
-                            <option>Operating System</option>
+                        <select name="subcategory" id="ticket_subcategory" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
+                            <option value="">-- Loading... --</option>
                         </select>
                     </div>
                     <div class="grid grid-cols-3 items-center gap-4">
@@ -294,16 +287,21 @@ function calculateSLAStatus($deadline, $metAt, $isPaused) {
                         <input id="priority" disabled class="col-span-2 p-1.5 bg-muted/30 border border-border rounded text-xs font-bold text-blue-600 h-8" value="3 - Moderate" />
                     </div>
                     <div class="grid grid-cols-3 items-center gap-4">
+                        <label class="text-[11px] text-right font-medium text-muted-foreground uppercase">Provider</label>
+                        <select name="provider" id="ticket_provider" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
+                            <option value="">-- Loading... --</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-3 items-center gap-4">
                         <label class="text-[11px] text-right font-medium text-muted-foreground uppercase">Assign Group</label>
-                        <input name="assignmentGroup" class="col-span-2 p-1.5 border border-border rounded text-xs h-8" />
+                        <select name="assignmentGroup" id="ticket_group" onchange="loadGroupMembers(this.value)" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
+                            <option value="">-- Loading... --</option>
+                        </select>
                     </div>
                     <div class="grid grid-cols-3 items-center gap-4">
                         <label class="text-[11px] text-right font-medium text-muted-foreground uppercase">Assigned to</label>
-                        <select name="assignedTo" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
-                            <option value="">-- Auto Assign --</option>
-                            <?php foreach ($agents as $agent): ?>
-                            <option value="<?= $agent['uid'] ?? $agent['id'] ?>"><?= htmlspecialchars($agent['name']) ?></option>
-                            <?php endforeach; ?>
+                        <select name="assignedTo" id="ticket_assigned_to" class="col-span-2 p-1.5 border border-border rounded text-xs h-8">
+                            <option value="">-- Select Group First --</option>
                         </select>
                     </div>
                 </div>
@@ -431,6 +429,60 @@ function filterColumn(colIndex, value) {
         
         row.style.display = showRow ? '' : 'none';
     });
+}
+
+// Flat Dropdown Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    const apiPaths = {
+        'ticket_category': 'categories',
+        'ticket_subcategory': 'subcategories',
+        'ticket_provider': 'providers',
+        'ticket_group': 'groups'
+    };
+
+    Object.entries(apiPaths).forEach(([elementId, action]) => {
+        fetch(`<?= BASE_URL ?>/api-proxy.php?action=${action}`)
+            .then(res => res.json())
+            .then(data => {
+                const select = document.getElementById(elementId);
+                if (!select) return;
+                
+                let options = `<option value="">-- Select ${elementId.split('_')[1]} --</option>`;
+                data.forEach(item => {
+                    options += `<option value="${item.name}" data-id="${item.id}">${item.name}</option>`;
+                });
+                select.innerHTML = options;
+            })
+            .catch(err => console.error(`Error loading ${action}:`, err));
+    });
+});
+
+function loadGroupMembers(groupName) {
+    const groupSelect = document.getElementById('ticket_group');
+    const selectedOption = groupSelect.options[groupSelect.selectedIndex];
+    const groupId = selectedOption ? selectedOption.getAttribute('data-id') : null;
+    const memberSelect = document.getElementById('ticket_assigned_to');
+
+    if (!groupId) {
+        memberSelect.innerHTML = '<option value="">-- Select Group First --</option>';
+        return;
+    }
+
+    memberSelect.innerHTML = '<option value="">-- Loading Members... --</option>';
+    
+    fetch(`<?= BASE_URL ?>/api-proxy.php?action=group_members&groupId=${groupId}`)
+        .then(res => res.json())
+        .then(members => {
+            let options = '<option value="">-- Auto Assign --</option>';
+            members.forEach(m => {
+                options += `<option value="${m.uid || m.id}">${m.name}</option>`;
+            });
+            memberSelect.innerHTML = options;
+        })
+        .catch(err => {
+            console.error('Error loading members:', err);
+            memberSelect.innerHTML = '<option value="">Error loading members</option>';
+        });
 }
 
 // Auto-open modal if action=new
