@@ -35,7 +35,8 @@ import {
   CalendarDays,
   Trophy,
   Building2,
-  KeyRound
+  KeyRound,
+  Monitor,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,7 @@ export function Sidebar() {
         { icon: CalendarDays, label: "Calendar", path: "/calendar" },
         { icon: Ticket, label: "My Tickets", path: "/timesheet" },
         { icon: BarChart2, label: "Timesheet Reports", path: "/timesheet/reports" },
+        { icon: Monitor, label: "AI Activity Tracker", path: "/activity-tracker" },
       ]
     },
     {

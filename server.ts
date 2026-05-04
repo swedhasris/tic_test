@@ -6,6 +6,8 @@ import cron from "node-cron";
 import mysql from 'mysql2/promise';
 import { GoogleGenAI } from "@google/genai";
 import { config as loadEnv } from "dotenv";
+import multer from "multer";
+import fs from "fs";
 
 // SQLite will be imported dynamically when needed
 
@@ -40,7 +42,8 @@ let useSQLite = false;
 async function getSQLiteDb() {
   if (!sqliteDb) {
     const { open } = await import('sqlite');
-    const sqlite3 = await import('sqlite3');
+    const sqlite3Module = await import('sqlite3');
+    const sqlite3 = sqlite3Module.default || sqlite3Module;
     sqliteDb = await open({
       filename: './timesheet.sqlite',
       driver: sqlite3.Database
@@ -805,7 +808,7 @@ async function startServer() {
       }
 
       const updated = await query("SELECT * FROM timesheets WHERE id = ?", [id]);
-      
+
       // Sync status to time cards if changed
       if (req.body.status) {
         await execute("UPDATE time_cards SET status = ? WHERE timesheet_id = ?", [req.body.status, id]);
@@ -986,7 +989,7 @@ async function startServer() {
 
       const actionStr = action === 'start' ? 'STARTING work on' : 'STOPPING work on';
       const durationStr = elapsedTime ? `\nTotal time worked: ${Math.floor(elapsedTime / 60)} minutes ${elapsedTime % 60} seconds` : '';
-      
+
       const prompt = `You are an IT service management work notes assistant. Generate a concise, professional work note for a technician who is ${actionStr} incident ${ticketNumber}.
 
 Ticket: ${ticketNumber} - ${ticketTitle || 'Incident'}${durationStr}
@@ -1025,7 +1028,7 @@ Respond ONLY with valid JSON.`;
     } catch (error: any) {
       console.error("[AI Work Analysis] Error:", error.message);
       const fallback = generateSmartFallback(
-        req.body.ticketNumber, req.body.ticketTitle, 
+        req.body.ticketNumber, req.body.ticketTitle,
         req.body.action, req.body.elapsedTime, req.body.context
       );
       res.json(fallback);
@@ -1034,14 +1037,14 @@ Respond ONLY with valid JSON.`;
 
   // Smart fallback note generation (no AI needed)
   function generateSmartFallback(
-    ticketNumber: string, ticketTitle: string, 
+    ticketNumber: string, ticketTitle: string,
     action: string, elapsedTime?: number, contextStr?: string
   ) {
     let pageContext: any = {};
-    try { pageContext = JSON.parse(contextStr || '{}'); } catch {}
+    try { pageContext = JSON.parse(contextStr || '{}'); } catch { }
 
     const startVerbs = [
-      'Initiated investigation of', 'Began troubleshooting', 
+      'Initiated investigation of', 'Began troubleshooting',
       'Started working on', 'Commenced review of',
       'Opened and assessed', 'Started analysis of'
     ];
@@ -1053,8 +1056,8 @@ Respond ONLY with valid JSON.`;
 
     const verbs = action === 'start' ? startVerbs : stopVerbs;
     const verb = verbs[Math.floor(Math.random() * verbs.length)];
-    const durationStr = elapsedTime 
-      ? `. Duration: ${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s` 
+    const durationStr = elapsedTime
+      ? `. Duration: ${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s`
       : '';
 
     // Detect activity from page context
@@ -1135,6 +1138,684 @@ Respond ONLY with valid JSON.`;
     } catch (error: any) {
       console.error("Error fetching work sessions:", error);
       res.status(500).json({ error: "Failed to fetch work sessions" });
+    }
+  });
+
+  // ═══ WORK NOTES TABLE INIT ═══
+  try {
+    if (useSQLite) {
+      const db = await getSQLiteDb();
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS work_notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          user_name TEXT,
+          ticket_id TEXT,
+          ticket_number TEXT,
+          session_id TEXT,
+          note_type TEXT NOT NULL,
+          screenshot_url TEXT,
+          screenshot_filename TEXT,
+          screenshot_format TEXT,
+          screenshot_size_kb INTEGER,
+          ai_note TEXT,
+          duration_seconds INTEGER,
+          duration_display TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_wn_user ON work_notes(user_id);
+        CREATE INDEX IF NOT EXISTS idx_wn_ticket ON work_notes(ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_wn_session ON work_notes(session_id);
+      `);
+    } else {
+      await execute(`
+        CREATE TABLE IF NOT EXISTS work_notes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(128) NOT NULL,
+          user_name VARCHAR(255),
+          ticket_id VARCHAR(128),
+          ticket_number VARCHAR(50),
+          session_id VARCHAR(128),
+          note_type ENUM('start','stop') NOT NULL,
+          screenshot_url TEXT,
+          screenshot_filename VARCHAR(255),
+          screenshot_format VARCHAR(10),
+          screenshot_size_kb INT,
+          ai_note TEXT,
+          duration_seconds INT,
+          duration_display VARCHAR(20),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_wn_user (user_id),
+          INDEX idx_wn_ticket (ticket_id),
+          INDEX idx_wn_session (session_id)
+        ) ENGINE=InnoDB
+      `);
+    }
+    console.log('[DB] Work notes table initialized');
+  } catch (e: any) {
+    console.error('[DB] Work notes table init failed:', e.message);
+  }
+
+  // ═══ MESSAGE HISTORY TABLE INIT ═══
+  try {
+    if (useSQLite) {
+      const db = await getSQLiteDb();
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS message_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          user_name TEXT,
+          message_type TEXT NOT NULL,
+          recipient TEXT,
+          message_content TEXT,
+          sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_mh_user ON message_history(user_id);
+        CREATE INDEX IF NOT EXISTS idx_mh_type ON message_history(message_type);
+      `);
+    } else {
+      await execute(`
+        CREATE TABLE IF NOT EXISTS message_history (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(128) NOT NULL,
+          user_name VARCHAR(255),
+          message_type ENUM('email','whatsapp') NOT NULL,
+          recipient VARCHAR(255),
+          message_content TEXT,
+          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_mh_user (user_id),
+          INDEX idx_mh_type (message_type)
+        ) ENGINE=InnoDB
+      `);
+    }
+    console.log('[DB] Message history table initialized');
+  } catch (e: any) {
+    console.error('[DB] Message history table init failed:', e.message);
+  }
+
+  // ═══ ACTIVITY TRACKER TABLES INIT ═══
+  try {
+    if (useSQLite) {
+      const db = await getSQLiteDb();
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS activity_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL UNIQUE,
+          user_id TEXT NOT NULL,
+          user_name TEXT,
+          start_time DATETIME NOT NULL,
+          stop_time DATETIME,
+          duration INTEGER DEFAULT 0,
+          summary TEXT,
+          status TEXT DEFAULT 'active',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_as_user ON activity_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_as_session ON activity_sessions(session_id);
+
+        CREATE TABLE IF NOT EXISTS activity_entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT,
+          user_id TEXT NOT NULL,
+          screenshot_url TEXT,
+          screenshot_filename TEXT,
+          screenshot_format TEXT,
+          screenshot_size_kb INTEGER,
+          activity_label TEXT,
+          description TEXT,
+          confidence REAL DEFAULT 0,
+          captured_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_ae_session ON activity_entries(session_id);
+        CREATE INDEX IF NOT EXISTS idx_ae_user ON activity_entries(user_id);
+      `);
+    } else {
+      await execute(`
+        CREATE TABLE IF NOT EXISTS activity_sessions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          session_id VARCHAR(128) NOT NULL UNIQUE,
+          user_id VARCHAR(128) NOT NULL,
+          user_name VARCHAR(255),
+          start_time TIMESTAMP NOT NULL,
+          stop_time TIMESTAMP NULL,
+          duration INT DEFAULT 0,
+          summary TEXT,
+          status VARCHAR(20) DEFAULT 'active',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_as_user (user_id),
+          INDEX idx_as_session (session_id)
+        ) ENGINE=InnoDB
+      `);
+      await execute(`
+        CREATE TABLE IF NOT EXISTS activity_entries (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          session_id VARCHAR(128),
+          user_id VARCHAR(128) NOT NULL,
+          screenshot_url TEXT,
+          screenshot_filename VARCHAR(255),
+          screenshot_format VARCHAR(10),
+          screenshot_size_kb INT,
+          activity_label VARCHAR(100),
+          description TEXT,
+          confidence DECIMAL(4,3) DEFAULT 0,
+          captured_at TIMESTAMP NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_ae_session (session_id),
+          INDEX idx_ae_user (user_id)
+        ) ENGINE=InnoDB
+      `);
+    }
+    console.log('[DB] Activity tracker tables initialized');
+  } catch (e: any) {
+    console.error('[DB] Activity tracker tables init failed:', e.message);
+  }
+
+  // ═══ AI ANALYZE ACTIVITY ═══
+  app.post('/api/ai/analyze-activity', async (req: any, res: any) => {
+    try {
+      const {
+        timestamp, previous_activity, userId,
+        appName, pageUrl, pageTitle, pageType, ticketNumber,
+        headings, formData, recentClicks,
+        recentKeys, idleSeconds, scrollDepth,
+        badges, visibleText,
+      } = req.body;
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === 'your_gemini_api_key_here') {
+        return res.json(activityFallback(previous_activity, pageUrl, pageType, idleSeconds, appName, ticketNumber));
+      }
+
+      const app_    = appName || 'Connect IT';
+      const prevStr = previous_activity ? `\nPrevious activity: ${previous_activity}` : '';
+      const idleStr = idleSeconds > 60 ? `\nUser has been idle for ${idleSeconds} seconds — likely away from keyboard.` : '';
+      const tickStr = ticketNumber ? `\nActive ticket: ${ticketNumber}` : '';
+      const clickStr = recentClicks?.length ? `\nRecent clicks: ${recentClicks.join(' → ')}` : '';
+      const keyStr  = recentKeys > 0 ? `\nKeystrokes since last snapshot: ${recentKeys}` : '';
+      const headStr = headings?.length ? `\nPage headings: ${headings.join(' | ')}` : '';
+      const formStr = formData && Object.keys(formData).length
+        ? `\nActive form fields: ${Object.entries(formData).map(([k,v]) => `${k}="${v}"`).join(', ')}`
+        : '';
+      const badgeStr = badges?.length ? `\nStatus badges visible: ${badges.join(', ')}` : '';
+      const textStr  = visibleText ? `\nVisible content snippet: ${visibleText}` : '';
+
+      const prompt = `You are an AI work activity analyzer monitoring a user inside "${app_}", an IT service management application.
+
+Application: ${app_}
+Current page: ${pageType || pageUrl}
+Page title: ${pageTitle || 'unknown'}
+Scroll depth: ${scrollDepth || 0}%${tickStr}${prevStr}${idleStr}${clickStr}${keyStr}${headStr}${formStr}${badgeStr}${textStr}
+
+Based on this context, determine what the user is doing. Choose ONE activity label from:
+Ticket Work, Timesheet Entry, Documentation, Dashboard Review, Reports Analysis,
+Settings Configuration, Knowledge Base, Calendar Review, Idle, General Work
+
+IMPORTANT RULES:
+- ALWAYS mention the app name "${app_}" in the description
+- ALWAYS mention the specific page (${pageType}) in the description
+- If a ticket number is present (${ticketNumber || 'none'}), mention it by name
+- If idle > 60s, label as "Idle" and say user is away
+- Be specific: mention what form fields are being filled, what was clicked, what headings are visible
+- Use action verbs: "Reviewing...", "Updating...", "Working on...", "Navigating to..."
+- 1-2 sentences max, professional tone
+- Do NOT say "User is actively working in the application" — be specific
+
+Example good descriptions:
+- "Reviewing incident INC0012345 in Connect IT's Ticket Detail page, checking SLA status and resolution notes."
+- "Updating timesheet entries in Connect IT's Weekly Timesheet, logging 3 hours for ticket work."
+- "Browsing the Knowledge Base in Connect IT, reading articles related to network troubleshooting."
+
+Respond ONLY with valid JSON:
+{"activity": "Ticket Work", "description": "Reviewing incident INC0012345 in Connect IT...", "confidence": 0.92}`;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+      const raw = (result.text || '').replace(/```json\s*/g, '').replace(/```/g, '').trim();
+
+      let parsed: any;
+      try { parsed = JSON.parse(raw); }
+      catch { parsed = activityFallback(previous_activity, pageUrl, pageType, idleSeconds, appName, ticketNumber); }
+
+      res.json({
+        activity:    parsed.activity    || 'General Work',
+        description: parsed.description || `Working in ${app_} on ${pageType || 'the application'}.`,
+        confidence:  parsed.confidence  ?? 0.7,
+      });
+    } catch (error: any) {
+      console.error('[AI Analyze Activity] Error:', error.message);
+      res.json(activityFallback(
+        req.body.previous_activity, req.body.pageUrl, req.body.pageType,
+        req.body.idleSeconds, req.body.appName, req.body.ticketNumber
+      ));
+    }
+  });
+
+  function activityFallback(
+    previousActivity?: string, pageUrl?: string, pageType?: string,
+    idleSeconds?: number, appName?: string, ticketNumber?: string
+  ): object {
+    const app_ = appName || 'Connect IT';
+    const page = pageType || 'the application';
+
+    if (idleSeconds && idleSeconds > 60) {
+      return { activity: 'Idle', description: `User has been idle for ${idleSeconds} seconds in ${app_}.`, confidence: 0.95 };
+    }
+
+    const pt = pageType || pageUrl || '';
+    const ticket = ticketNumber ? ` on ${ticketNumber}` : '';
+
+    const map: Record<string, [string, string]> = {
+      'Ticket Detail':   ['Ticket Work',        `Reviewing ticket details${ticket} in ${app_}'s Ticket Detail page.`],
+      'Ticket List':     ['Ticket Work',        `Browsing the ticket list in ${app_}, reviewing open incidents.`],
+      'Timesheet':       ['Timesheet Entry',    `Updating timesheet records in ${app_}'s Timesheet module.`],
+      'Weekly Timesheet':['Timesheet Entry',    `Logging work hours in ${app_}'s Weekly Timesheet view.`],
+      'Dashboard':       ['Dashboard Review',   `Reviewing the incident dashboard in ${app_}.`],
+      'Reports':         ['Reports Analysis',   `Analyzing reports and metrics in ${app_}'s Reports section.`],
+      'Knowledge Base':  ['Knowledge Base',     `Browsing knowledge base articles in ${app_}.`],
+      'Calendar':        ['Calendar Review',    `Reviewing scheduled events in ${app_}'s Calendar.`],
+      'Settings':        ['Settings Configuration', `Configuring system settings in ${app_}.`],
+      'CMDB':            ['General Work',       `Managing configuration items in ${app_}'s CMDB.`],
+      'Problem Management': ['General Work',    `Working on problem management tasks in ${app_}.`],
+      'Change Management':  ['General Work',    `Reviewing change requests in ${app_}.`],
+    };
+
+    for (const [k, [act, desc]] of Object.entries(map)) {
+      if (pt.includes(k)) return { activity: act, description: desc, confidence: 0.75 };
+    }
+
+    return { activity: 'General Work', description: `Working in ${app_} on the ${page} page.`, confidence: 0.6 };
+  }
+
+  // ═══ AI GENERATE SUMMARY ═══
+  app.post('/api/ai/generate-summary', async (req: any, res: any) => {
+    try {
+      const { session_data, duration_seconds } = req.body;
+      if (!session_data || !Array.isArray(session_data) || session_data.length === 0) {
+        return res.json({ summary: 'Session completed. User was actively working.' });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === 'your_gemini_api_key_here') {
+        const activities = [...new Set(session_data.map((e: any) => e.activity))].join(', ');
+        return res.json({ summary: `User worked on: ${activities}. Session duration: ${Math.floor((duration_seconds || 0) / 60)} minutes.` });
+      }
+
+      const activityList = session_data.map((e: any) =>
+        `[${new Date(e.timestamp).toLocaleTimeString()}] ${e.activity}: ${e.description}`
+      ).join('\n');
+
+      const durationStr = duration_seconds
+        ? `${Math.floor(duration_seconds / 3600)}h ${Math.floor((duration_seconds % 3600) / 60)}m`
+        : 'unknown';
+
+      const prompt = `You are an AI work session summarizer. Generate a concise professional summary of a user's work session.
+
+Session duration: ${durationStr}
+Activity log:
+${activityList}
+
+Write a 2-3 sentence professional summary describing:
+1. What the user primarily worked on
+2. Any task transitions or variety
+3. Overall productivity assessment
+
+Be specific, professional, and use past tense. Do NOT use bullet points.
+Respond ONLY with JSON: {"summary": "your summary here"}`;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+      const raw = (result.text || '').replace(/```json\s*/g, '').replace(/```/g, '').trim();
+
+      let summary = 'Session completed successfully.';
+      try { summary = JSON.parse(raw).summary || summary; } catch { summary = raw.length < 500 ? raw : summary; }
+
+      res.json({ summary });
+    } catch (error: any) {
+      console.error('[AI Generate Summary] Error:', error.message);
+      res.json({ summary: 'Session completed. User was actively working during this period.' });
+    }
+  });
+
+  // ═══ ACTIVITY SESSIONS CRUD ═══
+  app.post('/api/activity-sessions', async (req: any, res: any) => {
+    try {
+      const { session_id, user_id, user_name, start_time, status } = req.body;
+      if (!user_id || !session_id) return res.status(400).json({ error: 'Missing user_id or session_id' });
+      const result = await execute(
+        `INSERT INTO activity_sessions (session_id, user_id, user_name, start_time, status) VALUES (?, ?, ?, ?, ?)`,
+        [session_id, user_id, user_name || null, start_time || new Date().toISOString(), status || 'active']
+      );
+      const created = await query('SELECT * FROM activity_sessions WHERE id = ?', [result.insertId]);
+      res.json({ id: result.insertId.toString(), ...created[0] });
+    } catch (error: any) {
+      console.error('[Activity Sessions] Create failed:', error.message);
+      res.status(500).json({ error: 'Failed to create activity session' });
+    }
+  });
+
+  app.put('/api/activity-sessions/:id', async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const fields = Object.keys(req.body).filter(k => k !== 'id');
+      const setClause = fields.map(k => `${k} = ?`).join(', ');
+      const values = [...fields.map(k => req.body[k]), id];
+      await execute(`UPDATE activity_sessions SET ${setClause} WHERE id = ?`, values);
+      const updated = await query('SELECT * FROM activity_sessions WHERE id = ?', [id]);
+      res.json({ id: id.toString(), ...updated[0] });
+    } catch (error: any) {
+      console.error('[Activity Sessions] Update failed:', error.message);
+      res.status(500).json({ error: 'Failed to update activity session' });
+    }
+  });
+
+  app.get('/api/activity-sessions', async (req: any, res: any) => {
+    try {
+      const { user_id, status: s, limit = '20' } = req.query;
+      let sql = 'SELECT * FROM activity_sessions WHERE 1=1';
+      const values: any[] = [];
+      if (user_id) { sql += ' AND user_id = ?'; values.push(user_id); }
+      if (s) { sql += ' AND status = ?'; values.push(s); }
+      sql += ' ORDER BY created_at DESC LIMIT ?';
+      values.push(parseInt(limit as string) || 20);
+      const rows = await query(sql, values);
+      res.json(rows.map((r: any) => ({ id: r.id?.toString(), ...r })));
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch activity sessions' });
+    }
+  });
+
+  // ═══ ACTIVITY ENTRIES CRUD ═══
+  app.post('/api/activity-entries', async (req: any, res: any) => {
+    try {
+      const { session_id, user_id, screenshot_url, screenshot_filename, screenshot_format,
+              screenshot_size_kb, activity_label, description, confidence, captured_at } = req.body;
+      if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+      const result = await execute(
+        `INSERT INTO activity_entries (session_id, user_id, screenshot_url, screenshot_filename, screenshot_format, screenshot_size_kb, activity_label, description, confidence, captured_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [session_id || null, user_id, screenshot_url || null, screenshot_filename || null,
+         screenshot_format || null, screenshot_size_kb || null, activity_label || null,
+         description || null, confidence || 0, captured_at || null]
+      );
+      const created = await query('SELECT * FROM activity_entries WHERE id = ?', [result.insertId]);
+      res.json({ id: result.insertId.toString(), ...created[0] });
+    } catch (error: any) {
+      console.error('[Activity Entries] Create failed:', error.message);
+      res.status(500).json({ error: 'Failed to save activity entry' });
+    }
+  });
+
+  app.get('/api/activity-entries', async (req: any, res: any) => {
+    try {
+      const { user_id, session_id, limit = '100' } = req.query;
+      let sql = 'SELECT * FROM activity_entries WHERE 1=1';
+      const values: any[] = [];
+      if (user_id) { sql += ' AND user_id = ?'; values.push(user_id); }
+      if (session_id) { sql += ' AND session_id = ?'; values.push(session_id); }
+      sql += ' ORDER BY captured_at ASC LIMIT ?';
+      values.push(parseInt(limit as string) || 100);
+      const rows = await query(sql, values);
+      res.json(rows.map((r: any) => ({ id: r.id?.toString(), ...r })));
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch activity entries' });
+    }
+  });
+
+  // ═══ SCREENSHOT UPLOAD ═══
+  // Ensure uploads directory exists
+  const uploadsDir = path.join(__dirname, 'public', 'uploads', 'screenshots');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const screenshotStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      // Preserve the original filename (timesheet_start_<ts>.png / timesheet_stop_<ts>.jpeg)
+      // Sanitise to prevent path traversal
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, safe);
+    },
+  });
+
+  const screenshotUpload = multer({
+    storage: screenshotStorage,
+    limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB max
+    fileFilter: (_req, file, cb) => {
+      // STRICT: only PNG and JPEG accepted
+      const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`Invalid file type: ${file.mimetype}. Only PNG and JPEG are accepted.`));
+      }
+    },
+  });
+
+  app.post('/api/upload-screenshot', screenshotUpload.single('screenshot'), (req: any, res: any) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No screenshot file received' });
+      }
+      // Determine format from MIME
+      const format = req.file.mimetype === 'image/png' ? 'PNG' : 'JPEG';
+      const sizeKB  = Math.round(req.file.size / 1024);
+      const imageUrl = `/uploads/screenshots/${req.file.filename}`;
+
+      console.log(`[Upload] Screenshot saved: ${req.file.filename} (${format}, ${sizeKB}KB)`);
+      res.json({
+        image_url: imageUrl,
+        filename: req.file.filename,
+        format,
+        size_kb: sizeKB,
+      });    } catch (error: any) {
+      console.error('[Upload] Screenshot upload failed:', error.message);
+      res.status(500).json({ error: 'Screenshot upload failed' });
+    }
+  });
+
+  // Serve uploaded screenshots statically
+  app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+
+  // ═══ AI GENERATE NOTES (for Work Notes Chat) ═══
+  app.post('/api/ai/generate-notes', async (req: any, res: any) => {
+    try {
+      const {
+        context,        // 'start' | 'stop'
+        ticketNumber,
+        ticketTitle,
+        userId,
+        userName,
+        durationSeconds,
+        pageUrl,
+        pageTitle,
+      } = req.body;
+
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      // Smart fallback when no API key
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === 'your_gemini_api_key_here') {
+        const note = generateWorkNoteFallback(context, ticketNumber, ticketTitle, durationSeconds);
+        return res.json({ note });
+      }
+
+      const actionStr = context === 'start' ? 'starting' : 'stopping';
+      const durationStr = durationSeconds
+        ? `\nSession duration: ${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m ${durationSeconds % 60}s`
+        : '';
+      const ticketStr = ticketNumber ? `\nTicket: ${ticketNumber}${ticketTitle ? ` — ${ticketTitle}` : ''}` : '';
+
+      const prompt = `You are an IT service management work notes assistant. Generate a concise, professional 1-2 sentence work note for a technician who is ${actionStr} a work session.
+
+Technician: ${userName || 'Technician'}${ticketStr}${durationStr}
+Current page: ${pageUrl || 'timesheet'}
+Page title: ${pageTitle || 'Timesheet'}
+
+Rules:
+- Use action-based language: "Started working on...", "Continued development of...", "Reviewed...", "Completed..."
+- Be specific and professional
+- 1-2 sentences maximum
+- Detect activity type from context (coding, support, documentation, etc.)
+- For stop context, mention what was accomplished or the duration
+
+Respond with ONLY a JSON object: {"note": "your note here"}`;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      const raw = (result.text || '').replace(/```json\s*/g, '').replace(/```/g, '').trim();
+      let note: string;
+      try {
+        const parsed = JSON.parse(raw);
+        note = parsed.note || generateWorkNoteFallback(context, ticketNumber, ticketTitle, durationSeconds);
+      } catch {
+        // If AI returned plain text instead of JSON, use it directly
+        note = raw.length > 10 && raw.length < 500
+          ? raw
+          : generateWorkNoteFallback(context, ticketNumber, ticketTitle, durationSeconds);
+      }
+
+      res.json({ note });
+    } catch (error: any) {
+      console.error('[AI Generate Notes] Error:', error.message);
+      const note = generateWorkNoteFallback(
+        req.body.context, req.body.ticketNumber,
+        req.body.ticketTitle, req.body.durationSeconds
+      );
+      res.json({ note });
+    }
+  });
+
+  function generateWorkNoteFallback(
+    context: string,
+    ticketNumber?: string,
+    ticketTitle?: string,
+    durationSeconds?: number
+  ): string {
+    const ticket = ticketNumber ? ` for ${ticketNumber}${ticketTitle ? `: ${ticketTitle}` : ''}` : '';
+    const duration = durationSeconds
+      ? ` Duration: ${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m.`
+      : '';
+
+    if (context === 'start') {
+      const verbs = ['Started working on', 'Initiated work session', 'Began investigation of', 'Commenced work on'];
+      const verb = verbs[Math.floor(Math.random() * verbs.length)];
+      return `${verb} timesheet entry${ticket}. Session tracking initiated.`;
+    } else {
+      const verbs = ['Completed work session', 'Concluded work session', 'Finished work session', 'Wrapped up session'];
+      const verb = verbs[Math.floor(Math.random() * verbs.length)];
+      return `${verb}${ticket}.${duration} Progress saved.`;
+    }
+  }
+
+  // ═══ WORK NOTES CRUD ═══
+  app.post('/api/work-notes', async (req: any, res: any) => {
+    try {
+      const {
+        user_id, user_name, ticket_id, ticket_number,
+        session_id, note_type, screenshot_url,
+        screenshot_filename, screenshot_format, screenshot_size_kb,
+        ai_note, duration_seconds, duration_display,
+      } = req.body;
+
+      if (!user_id || !note_type) {
+        return res.status(400).json({ error: 'Missing required fields: user_id, note_type' });
+      }
+      if (!['start', 'stop'].includes(note_type)) {
+        return res.status(400).json({ error: 'note_type must be "start" or "stop"' });
+      }
+
+      const result = await execute(
+        `INSERT INTO work_notes
+          (user_id, user_name, ticket_id, ticket_number, session_id, note_type,
+           screenshot_url, screenshot_filename, screenshot_format, screenshot_size_kb,
+           ai_note, duration_seconds, duration_display)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          user_id,
+          user_name || null,
+          ticket_id || null,
+          ticket_number || null,
+          session_id || null,
+          note_type,
+          screenshot_url || null,
+          screenshot_filename || null,
+          screenshot_format || null,
+          screenshot_size_kb || null,
+          ai_note || null,
+          duration_seconds || null,
+          duration_display || null,
+        ]
+      );
+
+      const created = await query('SELECT * FROM work_notes WHERE id = ?', [result.insertId]);
+      res.json({ id: result.insertId.toString(), ...created[0] });
+    } catch (error: any) {
+      console.error('[Work Notes] Create failed:', error.message);
+      res.status(500).json({ error: 'Failed to save work note' });
+    }
+  });
+
+  app.get('/api/work-notes', async (req: any, res: any) => {
+    try {
+      const { user_id, ticket_id, session_id, limit = '50' } = req.query;
+
+      let sql = 'SELECT * FROM work_notes WHERE 1=1';
+      const values: any[] = [];
+
+      if (user_id) { sql += ' AND user_id = ?'; values.push(user_id); }
+      if (ticket_id) { sql += ' AND ticket_id = ?'; values.push(ticket_id); }
+      if (session_id) { sql += ' AND session_id = ?'; values.push(session_id); }
+
+      sql += ' ORDER BY created_at DESC LIMIT ?';
+      values.push(parseInt(limit as string) || 50);
+
+      const rows = await query(sql, values);
+      // Return in chronological order for chat display
+      res.json(rows.reverse().map((r: any) => ({ id: r.id?.toString(), ...r })));
+    } catch (error: any) {
+      console.error('[Work Notes] Fetch failed:', error.message);
+      res.status(500).json({ error: 'Failed to fetch work notes' });
+    }
+  });
+
+  // ═══ MESSAGE HISTORY CRUD ═══
+  app.post('/api/message-history', async (req: any, res: any) => {
+    try {
+      const { user_id, user_name, message_type, recipient, message_content } = req.body;
+      if (!user_id || !message_type) {
+        return res.status(400).json({ error: 'Missing required fields: user_id, message_type' });
+      }
+      const result = await execute(
+        `INSERT INTO message_history (user_id, user_name, message_type, recipient, message_content) VALUES (?, ?, ?, ?, ?)`,
+        [user_id, user_name || null, message_type, recipient || null, message_content || null]
+      );
+      const created = await query('SELECT * FROM message_history WHERE id = ?', [result.insertId]);
+      res.json({ id: result.insertId.toString(), ...created[0] });
+    } catch (error: any) {
+      console.error('[Message History] Save failed:', error.message);
+      res.status(500).json({ error: 'Failed to save message history' });
+    }
+  });
+
+  app.get('/api/message-history', async (req: any, res: any) => {
+    try {
+      const { user_id, message_type, limit = '100' } = req.query;
+      let sql = 'SELECT * FROM message_history WHERE 1=1';
+      const values: any[] = [];
+      if (user_id) { sql += ' AND user_id = ?'; values.push(user_id); }
+      if (message_type) { sql += ' AND message_type = ?'; values.push(message_type); }
+      sql += ' ORDER BY sent_at DESC LIMIT ?';
+      values.push(parseInt(limit as string) || 100);
+      const rows = await query(sql, values);
+      res.json(rows.map((r: any) => ({ id: r.id?.toString(), ...r })));
+    } catch (error: any) {
+      console.error('[Message History] Fetch failed:', error.message);
+      res.status(500).json({ error: 'Failed to fetch message history' });
     }
   });
 

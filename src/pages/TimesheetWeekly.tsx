@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, CheckCircle, AlertCircle, BarChart2 } from "lucide-react";
+import { Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, CheckCircle, AlertCircle, BarChart2, Bot, Zap } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { Link } from "react-router-dom";
 
@@ -232,6 +232,27 @@ export function TimesheetWeekly() {
         </button>
       </div>
 
+      {/* AI Tracker Banner */}
+      {(() => {
+        const aiEntries = timeCards.filter(c => (c.short_description || '').startsWith('[AI Tracked]'));
+        const aiMins = aiEntries.reduce((s: number, c: any) => s + (parseFloat(c.hours_worked) || 0), 0);
+        if (aiEntries.length === 0) return null;
+        return (
+          <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <Bot className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-semibold text-blue-800">AI Activity Tracker</span>
+              <span className="text-sm text-blue-600 ml-2">
+                Auto-logged <strong>{aiMins} mins</strong> across <strong>{aiEntries.length}</strong> entries this week
+              </span>
+            </div>
+            <Link to="/activity-tracker" className="text-xs text-blue-600 hover:underline font-medium flex-shrink-0">
+              View tracker →
+            </Link>
+          </div>
+        );
+      })()}
+
       {/* Weekly Grid */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -254,10 +275,20 @@ export function TimesheetWeekly() {
                   {entries.length === 0 ? (
                     <div className="text-center py-4 text-xs text-muted-foreground italic">No entries</div>
                   ) : entries.map(entry => (
-                    <div key={entry.id} className="p-2 bg-muted/30 rounded border border-border text-xs group relative hover:bg-muted/50 transition-colors">
-                      <div className="font-semibold truncate pr-10">{entry.task}</div>
+                    <div key={entry.id} className={`p-2 rounded border text-xs group relative hover:bg-muted/50 transition-colors
+                      ${(entry.short_description || '').startsWith('[AI Tracked]')
+                        ? 'bg-blue-50 border-blue-200'
+                        : 'bg-muted/30 border-border'}`}>
+                      <div className="font-semibold truncate pr-10 flex items-center gap-1">
+                        {(entry.short_description || '').startsWith('[AI Tracked]') && (
+                          <span title="Auto-tracked by AI Activity Tracker">🤖</span>
+                        )}
+                        {entry.task}
+                      </div>
                       <div className="text-muted-foreground">{entry.hours_worked} mins</div>
-                      {entry.description && <div className="text-muted-foreground truncate mt-0.5">{entry.description}</div>}
+                      {entry.short_description && (
+                        <div className="text-muted-foreground truncate mt-0.5 text-[10px]">{entry.short_description}</div>
+                      )}
                       {canEdit && (
                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex gap-0.5">
                           <button onClick={() => openEdit(entry)} className="p-1 hover:bg-white rounded" title="Edit">

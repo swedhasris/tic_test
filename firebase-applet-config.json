@@ -1,10 +1,9 @@
 {
-  "projectId": "studio-1364433017-7dd51",
-  "appId": "1:505446598965:web:e37ec195b0fc55903ee47c",
-  "apiKey": "AIzaSyBeQ9SZluIwcL7UjTLMORYOjG5AS5ubDH8",
+  "apiKey": "YOUR_FIREBASE_API_KEY",
   "authDomain": "studio-1364433017-7dd51.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-81cf4ca1-6eb2-4c0c-b500-47f18cc09c6c",
-  "storageBucket": "studio-1364433017-7dd51.firebasestorage.app",
-  "messagingSenderId": "505446598965",
-  "measurementId": ""
+  "projectId": "studio-1364433017-7dd51",
+  "storageBucket": "studio-1364433017-7dd51.appspot.com",
+  "messagingSenderId": "YOUR_MESSAGING_SENDER_ID",
+  "appId": "YOUR_APP_ID",
+  "firestoreDatabaseId": "ai-studio-81cf4ca1-6eb2-4c0c-b500-47f18cc09c6c"
 }

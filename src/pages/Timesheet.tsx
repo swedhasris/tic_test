@@ -5,6 +5,7 @@ import {
   Paperclip, Link2, Image, Mic, CheckSquare, Mail, Send, Phone,
   MessageCircle, ChevronRight, FileText, Copy, Printer, RefreshCw, Ticket
 } from "lucide-react";
+import { WorkNotesChat } from "../components/WorkNotesChat";
 import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/firebase";
 import {
@@ -182,6 +183,14 @@ export function Timesheet() {
   const [waMessage, setWaMessage] = useState("");
   const [waAutoSync, setWaAutoSync] = useState(true);
 
+  // Message history
+  const [msgHistory, setMsgHistory] = useState<any[]>([]);
+  const [msgHistoryLoading, setMsgHistoryLoading] = useState(false);
+
+  // Clipboard attachments
+  const [emailClipboard, setEmailClipboard] = useState<{ type: "text" | "image"; value: string; label: string } | null>(null);
+  const [waClipboard, setWaClipboard]       = useState<{ type: "text" | "image"; value: string; label: string } | null>(null);
+
   // Open tickets
   const [openTickets, setOpenTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
@@ -195,6 +204,7 @@ export function Timesheet() {
   const weekEnd = formatDate(new Date(new Date(weekStart).getTime() + 6 * 86400000));
 
   useEffect(() => { loadData(); }, [user, weekStart]);
+  useEffect(() => { if (user) loadMessageHistory(); }, [user]);
 
   /* ── Listen for active timer from Firestore ── */
   useEffect(() => {
@@ -411,6 +421,116 @@ export function Timesheet() {
     const phone = waCountryCode.replace("+", "") + waPhone.replace(/\D/g, "");
     const msg = encodeURIComponent(waMessage);
     window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+
+    // Save to history
+    const recipient = `${waCountryCode} ${waPhone}`;
+    saveMessageHistory("whatsapp", recipient, waMessage);
+  }
+
+  async function saveMessageHistory(type: "email" | "whatsapp", recipient: string, content: string) {
+    if (!user) return;
+    try {
+      await fetch("/api/message-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.uid,
+          user_name: profile?.name || user.email || "User",
+          message_type: type,
+          recipient,
+          message_content: content,
+        }),
+      });
+      loadMessageHistory();
+    } catch (e) {
+      console.error("[Timesheet] Failed to save message history:", e);
+    }
+  }
+
+  async function loadMessageHistory() {
+    if (!user) return;
+    setMsgHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/message-history?user_id=${user.uid}&limit=50`);
+      if (res.ok) setMsgHistory(await res.json());
+    } catch { /* silent */ } finally {
+      setMsgHistoryLoading(false);
+    }
+  }
+
+  function handleSendEmail() {
+    // Build mailto link
+    const subject = encodeURIComponent(`Timesheet Notes — ${entryDate}`);
+    const body = encodeURIComponent(notesContent || waMessage);
+    window.open(`mailto:?subject=${subject}&body=${body}`, "_blank");
+
+    // Save to history
+    const recipient = emailContactName || emailFrom || "Contact";
+    saveMessageHistory("email", recipient, notesContent || waMessage);
+  }
+
+  async function pasteFromClipboard(target: "email" | "whatsapp") {
+    try {
+      if (!navigator.clipboard) {
+        alert("Clipboard API not available. Please use Ctrl+V to paste.");
+        return;
+      }
+
+      // Try reading clipboard items (supports images + text)
+      if (navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          // Image types
+          const imageType = item.types.find(t => t.startsWith("image/"));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              const ext = imageType.split("/")[1] || "png";
+              const payload = { type: "image" as const, value: dataUrl, label: `Pasted image.${ext}` };
+              if (target === "email") setEmailClipboard(payload);
+              else setWaClipboard(payload);
+            };
+            reader.readAsDataURL(blob);
+            return;
+          }
+          // Plain text
+          if (item.types.includes("text/plain")) {
+            const blob = await item.getType("text/plain");
+            const text = await blob.text();
+            const payload = { type: "text" as const, value: text, label: text.slice(0, 60) + (text.length > 60 ? "…" : "") };
+            if (target === "email") setEmailClipboard(payload);
+            else {
+              setWaMessage(prev => prev ? prev + "\n" + text : text);
+              setWaAutoSync(false);
+              setWaClipboard(payload);
+            }
+            return;
+          }
+        }
+      }
+
+      // Fallback: readText only
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const payload = { type: "text" as const, value: text, label: text.slice(0, 60) + (text.length > 60 ? "…" : "") };
+        if (target === "email") setEmailClipboard(payload);
+        else {
+          setWaMessage(prev => prev ? prev + "\n" + text : text);
+          setWaAutoSync(false);
+          setWaClipboard(payload);
+        }
+      } else {
+        alert("Clipboard is empty or contains unsupported content.");
+      }
+    } catch (err: any) {
+      if (err.name === "NotAllowedError") {
+        alert("Clipboard access denied. Please allow clipboard permissions or use Ctrl+V.");
+      } else {
+        alert("Could not read clipboard: " + err.message);
+      }
+    }
   }
 
   const canEdit = timesheet?.status === "Draft" || timesheet?.status === "Rejected";
@@ -716,6 +836,19 @@ export function Timesheet() {
         </div>
       </Section>
 
+      {/* ═══ WORK NOTES (PRIVATE) CHAT STREAM ═══ */}
+      <WorkNotesChat
+        ticketNumber=""
+        ticketTitle=""
+        ticketId=""
+        onSessionStart={(sessionId, startTime) => {
+          console.log('[Timesheet] Work session started:', sessionId, startTime);
+        }}
+        onSessionStop={(sessionId, durationSeconds) => {
+          console.log('[Timesheet] Work session stopped:', sessionId, 'duration:', durationSeconds, 's');
+        }}
+      />
+
       {/* ═══ SEND NOTES AS EMAIL ═══ */}
       <Section title="Send Notes as Email" icon={<Mail className="w-4 h-4 text-blue-600" />} defaultOpen={false}>
         <div className="p-5 space-y-3">
@@ -754,12 +887,46 @@ export function Timesheet() {
               <input type="checkbox" checked={emailBundled} onChange={e => setEmailBundled(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
             </div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Attachments:</label>
-            <div className="col-span-5 flex items-center gap-3">
-              <input type="file" className="text-xs" />
-              <span className="text-xs text-muted-foreground">or <button className="text-blue-600 hover:underline font-medium">Paste from Clipboard</button></span>
+          <div className="grid grid-cols-6 items-start gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-1">Attachments:</label>
+            <div className="col-span-5 space-y-2">
+              <div className="flex items-center gap-3">
+                <input type="file" className="text-xs" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <button
+                  type="button"
+                  onClick={() => pasteFromClipboard("email")}
+                  className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-xs flex items-center gap-1 transition-colors"
+                >
+                  <Paperclip className="w-3 h-3" /> Paste from Clipboard
+                </button>
+              </div>
+              {/* Clipboard preview */}
+              {emailClipboard && (
+                <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  {emailClipboard.type === "image" ? (
+                    <img src={emailClipboard.value} alt="Pasted" className="h-16 w-auto rounded border border-blue-200 object-contain bg-white" />
+                  ) : (
+                    <div className="flex-1 text-xs text-gray-700 bg-white border border-blue-200 rounded p-2 font-mono max-h-16 overflow-hidden">
+                      {emailClipboard.label}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setEmailClipboard(null)}
+                    className="text-gray-400 hover:text-red-500 transition-colors text-base leading-none flex-shrink-0"
+                    title="Remove"
+                  >×</button>
+                </div>
+              )}
             </div>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={handleSendEmail}
+              className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded font-semibold text-sm hover:bg-blue-700 transition-colors"
+            >
+              <Mail className="w-4 h-4" /> Send Email
+            </button>
           </div>
         </div>
       </Section>
@@ -806,11 +973,38 @@ export function Timesheet() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Attachments:</label>
-            <div className="col-span-5 flex items-center gap-3">
-              <input type="file" className="text-xs" />
-              <span className="text-xs text-muted-foreground">or <button className="text-blue-600 hover:underline font-medium">Paste from Clipboard</button></span>
+          <div className="grid grid-cols-6 items-start gap-3">
+            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-1">Attachments:</label>
+            <div className="col-span-5 space-y-2">
+              <div className="flex items-center gap-3">
+                <input type="file" className="text-xs" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <button
+                  type="button"
+                  onClick={() => pasteFromClipboard("whatsapp")}
+                  className="font-medium text-xs flex items-center gap-1 transition-colors hover:underline"
+                  style={{ color: "#25D366" }}
+                >
+                  <Paperclip className="w-3 h-3" /> Paste from Clipboard
+                </button>
+              </div>
+              {/* Clipboard preview */}
+              {waClipboard && (
+                <div className="flex items-start gap-2 p-2 rounded-lg border" style={{ background: "#f0fdf4", borderColor: "#86efac" }}>
+                  {waClipboard.type === "image" ? (
+                    <img src={waClipboard.value} alt="Pasted" className="h-16 w-auto rounded border object-contain bg-white" style={{ borderColor: "#86efac" }} />
+                  ) : (
+                    <div className="flex-1 text-xs text-gray-700 bg-white rounded p-2 font-mono max-h-16 overflow-hidden border" style={{ borderColor: "#86efac" }}>
+                      {waClipboard.label}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setWaClipboard(null)}
+                    className="text-gray-400 hover:text-red-500 transition-colors text-base leading-none flex-shrink-0"
+                    title="Remove"
+                  >×</button>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex justify-end">
@@ -823,6 +1017,77 @@ export function Timesheet() {
               <MessageCircle className="w-4 h-4" /> Send WhatsApp
             </button>
           </div>
+        </div>
+      </Section>
+
+      {/* ═══ MESSAGE HISTORY ═══ */}
+      <Section
+        title="Message History"
+        icon={<History className="w-4 h-4 text-purple-600" />}
+        accentColor="text-purple-600"
+        defaultOpen={false}
+        headerRight={
+          <button
+            onClick={(e) => { e.stopPropagation(); loadMessageHistory(); }}
+            className="p-1 hover:bg-muted rounded transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+          </button>
+        }
+      >
+        <div className="p-5">
+          {msgHistoryLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : msgHistory.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              No messages sent yet. Send an Email or WhatsApp message to see history here.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {msgHistory.map((item) => {
+                const isWA = item.message_type === "whatsapp";
+                const sentAt = new Date(item.sent_at);
+                return (
+                  <div key={item.id} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-white hover:bg-muted/10 transition-colors">
+                    {/* Icon */}
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm
+                      ${isWA ? "bg-[#25D366]/10" : "bg-blue-50"}`}>
+                      {isWA
+                        ? <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                        : <Mail className="w-4 h-4 text-blue-500" />}
+                    </div>
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className={`text-xs font-bold uppercase tracking-wide
+                          ${isWA ? "text-[#25D366]" : "text-blue-600"}`}>
+                          {isWA ? "WhatsApp" : "Email"}
+                        </span>
+                        {item.recipient && (
+                          <span className="text-xs text-muted-foreground">→ {item.recipient}</span>
+                        )}
+                      </div>
+                      {item.message_content && (
+                        <p className="text-xs text-gray-600 truncate max-w-xl">{item.message_content}</p>
+                      )}
+                    </div>
+                    {/* Timestamp */}
+                    <div className="flex-shrink-0 text-right">
+                      <p className="text-[10px] text-muted-foreground">
+                        {sentAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {sentAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Section>
 

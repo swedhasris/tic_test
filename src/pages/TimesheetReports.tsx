@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { BarChart2, ArrowLeft } from "lucide-react";
+import { BarChart2, ArrowLeft, Bot, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -8,6 +8,7 @@ export function TimesheetReports() {
   const [timesheets, setTimesheets] = useState<any[]>([]);
   const [allCards, setAllCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activitySessions, setActivitySessions] = useState<any[]>([]);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -29,6 +30,12 @@ export function TimesheetReports() {
       const tcRes = await fetch(`/api/time-cards?user_id=${user.uid}`);
       const cards = await tcRes.json();
       setAllCards(cards);
+
+      // Fetch AI activity sessions
+      try {
+        const sessRes = await fetch(`/api/activity-sessions?user_id=${user.uid}&limit=20`);
+        if (sessRes.ok) setActivitySessions(await sessRes.json());
+      } catch { /* silent */ }
     } catch (e) {
       console.error(e);
     }
@@ -113,6 +120,83 @@ export function TimesheetReports() {
               ))}
             </div>
           </div>
+
+          {/* AI Activity Sessions */}
+          {activitySessions.length > 0 && (
+            <div className="bg-white rounded-lg border border-border overflow-hidden">
+              <div className="p-4 border-b border-border bg-blue-50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-blue-500" />
+                  <h3 className="font-semibold text-blue-800">AI Activity Tracker Sessions</h3>
+                  <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                    {activitySessions.length}
+                  </span>
+                </div>
+                <Link to="/activity-tracker" className="text-xs text-blue-600 hover:underline font-medium">
+                  Open Tracker →
+                </Link>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 border-b border-border text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      <th className="p-3 text-left">Date</th>
+                      <th className="p-3 text-left">Start</th>
+                      <th className="p-3 text-left">End</th>
+                      <th className="p-3 text-right">Duration</th>
+                      <th className="p-3 text-center">Status</th>
+                      <th className="p-3 text-left">Summary</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activitySessions.map((s: any) => {
+                      const dur = s.duration || 0;
+                      const h = Math.floor(dur / 3600);
+                      const m = Math.floor((dur % 3600) / 60);
+                      const durStr = dur > 0 ? `${h > 0 ? h + 'h ' : ''}${m}m` : '—';
+                      return (
+                        <tr key={s.id} className="border-b border-border hover:bg-muted/10">
+                          <td className="p-3 text-sm">
+                            {s.start_time ? new Date(s.start_time).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="p-3 text-sm font-mono">
+                            {s.start_time ? new Date(s.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td className="p-3 text-sm font-mono">
+                            {s.stop_time ? new Date(s.stop_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td className="p-3 text-right font-bold text-sm">{durStr}</td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-xs font-semibold
+                              ${s.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {s.status === 'completed' ? 'Completed' : 'Active'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-sm text-muted-foreground max-w-xs truncate">
+                            {s.summary || '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* AI-tracked time cards summary */}
+              {(() => {
+                const aiCards = allCards.filter((c: any) => (c.short_description || '').startsWith('[AI Tracked]'));
+                const aiMins = aiCards.reduce((s: number, c: any) => s + (parseFloat(c.hours_worked) || 0), 0);
+                if (aiCards.length === 0) return null;
+                return (
+                  <div className="p-3 bg-blue-50 border-t border-blue-100 flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-blue-500" />
+                    <span className="text-xs text-blue-700">
+                      AI Tracker auto-logged <strong>{aiMins} mins</strong> across <strong>{aiCards.length}</strong> time entries in your timesheets
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Weekly History */}
           <div className="bg-white rounded-lg border border-border overflow-hidden">

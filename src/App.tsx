@@ -43,6 +43,7 @@ const TimesheetApprovals = lazy(() => import("./pages/TimesheetApprovals").then(
 const Groups = lazy(() => import("./pages/Groups").then(m => ({ default: m.Groups })));
 const ClearUsers = lazy(() => import("./pages/ClearUsers").then(m => ({ default: m.ClearUsers })));
 const BrandingSettings = lazy(() => import("./pages/BrandingSettings").then(m => ({ default: m.BrandingSettings })));
+const ActivityTracker = lazy(() => import("./pages/ActivityTracker").then(m => ({ default: m.ActivityTracker })));
 
 function LoadingScreen() {
   return (
@@ -351,6 +352,14 @@ function AppBody() {
             element={
               <ProtectedRoute>
                 <BrandingSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/activity-tracker"
+            element={
+              <ProtectedRoute>
+                <ActivityTracker />
               </ProtectedRoute>
             }
           />
