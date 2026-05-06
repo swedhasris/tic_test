@@ -18,6 +18,8 @@ interface ActivityEntry {
   appName: string; appIcon: string; appCategory: string; appColor: string;
   pageType: string; pageUrl: string; ticketNumber: string | null;
   activity: string; description: string; confidence: number;
+  detectedApp: string | null;     // what Gemini Vision actually saw
+  detectedWebsite: string | null; // website Gemini identified
   clicks: string[]; keystrokes: number; idleSeconds: number; scrollDepth: number;
   screenshotDataUrl: string | null; screenshotUrl: string | null;
   screenshotFilename: string | null;
@@ -109,8 +111,17 @@ function FeedEntry({ entry, onPreview }: { entry: ActivityEntry; onPreview: (src
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border shadow-sm ${entry.appColor}`}>
               <span className="text-sm leading-none">{entry.appIcon}</span>
-              {entry.appName}
+              {/* Show Gemini-detected app if different from tab-detected */}
+              {entry.detectedApp && entry.detectedApp !== entry.appName
+                ? entry.detectedApp
+                : entry.appName}
             </span>
+            {/* Show detected website if Gemini found one */}
+            {entry.detectedWebsite && (
+              <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                🌐 {entry.detectedWebsite}
+              </span>
+            )}
             <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded font-medium">{entry.appCategory}</span>
             <span className="text-xs text-slate-500">› {entry.pageType}</span>
             {entry.ticketNumber && (
@@ -158,21 +169,33 @@ function FeedEntry({ entry, onPreview }: { entry: ActivityEntry; onPreview: (src
         </div>
 
         {/* Stats */}
-        <div className="px-4 py-2 flex items-center gap-4 flex-wrap">
-          {entry.clicks.length > 0 && (
-            <div className="flex items-center gap-1 text-xs text-slate-500">
-              <MousePointer className="w-3 h-3" />
-              <span>Clicked: <span className="font-medium">{entry.clicks.slice(-2).join(', ')}</span></span>
+        <div className="px-4 py-2 flex items-center gap-4 flex-wrap bg-slate-50/50 border-t border-slate-100">
+          {entry.clicks.length > 0 ? (
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <MousePointer className="w-3.5 h-3.5 text-blue-500" />
+              <span className="font-medium">Clicked:</span>
+              <span className="text-slate-500">{entry.clicks.slice(-3).join(' → ')}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <MousePointer className="w-3.5 h-3.5" />
+              <span>No clicks</span>
             </div>
           )}
-          {entry.keystrokes > 0 && (
-            <div className="flex items-center gap-1 text-xs text-slate-500">
-              <Keyboard className="w-3 h-3" /><span>{entry.keystrokes} keystrokes</span>
+          <div className={`flex items-center gap-1.5 text-xs ${entry.keystrokes > 0 ? 'text-slate-600' : 'text-slate-400'}`}>
+            <Keyboard className={`w-3.5 h-3.5 ${entry.keystrokes > 0 ? 'text-purple-500' : ''}`} />
+            <span className={entry.keystrokes > 0 ? 'font-medium' : ''}>{entry.keystrokes} keystrokes</span>
+          </div>
+          {entry.idleSeconds > 30 && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-500">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Idle {entry.idleSeconds}s</span>
             </div>
           )}
           {entry.scrollDepth > 0 && (
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <Activity className="w-3 h-3" /><span>Scroll {entry.scrollDepth}%</span>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <Activity className="w-3.5 h-3.5" />
+              <span>Scroll {entry.scrollDepth}%</span>
             </div>
           )}
           {entry.confidence > 0 && (
@@ -237,6 +260,18 @@ export function ActivityTracker() {
   const elapsedRef      = useRef(0);
   const prevActivityRef = useRef('');
 
+  // Use refs for values needed inside processSnapshot to avoid stale closures
+  const sessionIdRef    = useRef<string | null>(null);
+  const sessionDbIdRef  = useRef<string | null>(null);
+  const intervalSecRef  = useRef(15);
+  const userRef         = useRef(user);
+  const profileRef      = useRef(profile);
+
+  // Keep refs in sync with state
+  useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+  useEffect(() => { intervalSecRef.current = intervalSec; }, [intervalSec]);
+
   const isActive = status === 'active';
 
   /* ── Timer ── */
@@ -259,63 +294,88 @@ export function ActivityTracker() {
     try {
       const fd = new FormData();
       fd.append('screenshot', blob, filename);
-      fd.append('userId', (user?.uid || 'anon').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32));
+      fd.append('userId', (userRef.current?.uid || 'anon').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32));
       fd.append('format', 'jpeg');
       const res = await fetch('/api/upload-screenshot', { method: 'POST', body: fd });
       if (res.ok) { const d = await res.json(); return d.image_url; }
     } catch { /* silent */ }
     return null;
-  }, [user]);
+  }, []); // no deps — uses refs
 
   /* ── Process snapshot → AI → timesheet → feed ── */
+  // Defined with no deps — reads everything from refs to avoid stale closures
   const processSnapshot = useCallback(async (snap: ActivitySnapshot) => {
     const entryId = `e_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const userId  = user?.uid || 'anonymous';
+    const userId  = userRef.current?.uid || 'anonymous';
+    const currentSessionId = sessionIdRef.current;
+    const currentIntervalSec = intervalSecRef.current;
 
-    // Idle detection — skip AI, show idle bubble
-    if (snap.idleSeconds > 120) {
-      const idleEntry: ActivityEntry = {
-        id: entryId, timestamp: snap.timestamp,
-        appName: snap.appName, appIcon: snap.appIcon, appCategory: snap.appCategory, appColor: snap.appColor,
-        pageType: snap.pageType, pageUrl: snap.url, ticketNumber: snap.ticketNumber,
-        activity: 'Idle', description: `User has been idle for ${Math.floor(snap.idleSeconds / 60)} minutes.`,
-        confidence: 0.95, clicks: [], keystrokes: 0, idleSeconds: snap.idleSeconds, scrollDepth: 0,
-        screenshotDataUrl: null, screenshotUrl: null, screenshotFilename: null,
-        isProcessing: false, isIdle: true,
-      };
-      setEntries(prev => [...prev, idleEntry]);
+    // Idle detection — only trigger after 10 minutes of no interaction
+    // and only add ONE idle entry (don't spam)
+    if (snap.idleSeconds > 600) {
+      // Check if last entry is already an idle entry — don't spam
+      setEntries(prev => {
+        const lastEntry = prev[prev.length - 1];
+        if (lastEntry?.isIdle) {
+          // Just update the last idle entry's time instead of adding a new one
+          return prev.map((e, i) =>
+            i === prev.length - 1
+              ? { ...e, timestamp: snap.timestamp, description: `User has been idle for ${Math.floor(snap.idleSeconds / 60)} minutes.`, idleSeconds: snap.idleSeconds }
+              : e
+          );
+        }
+        const idleEntry: ActivityEntry = {
+          id: entryId, timestamp: snap.timestamp,
+          appName: snap.appName, appIcon: snap.appIcon, appCategory: snap.appCategory, appColor: snap.appColor,
+          pageType: snap.pageType, pageUrl: snap.url, ticketNumber: snap.ticketNumber,
+          activity: 'Idle', description: `User has been idle for ${Math.floor(snap.idleSeconds / 60)} minutes.`,
+          confidence: 0.95, clicks: [], keystrokes: 0, idleSeconds: snap.idleSeconds, scrollDepth: 0,
+          screenshotDataUrl: null, screenshotUrl: null, screenshotFilename: null,
+          isProcessing: false, isIdle: true,
+        };
+        return [...prev.slice(-99), idleEntry];
+      });
       return;
     }
 
-    // Add processing placeholder
+    // Add processing placeholder immediately
     const placeholder: ActivityEntry = {
       id: entryId, timestamp: snap.timestamp,
       appName: snap.appName, appIcon: snap.appIcon, appCategory: snap.appCategory, appColor: snap.appColor,
       pageType: snap.pageType, pageUrl: snap.url, ticketNumber: snap.ticketNumber,
       activity: 'Analyzing...', description: '', confidence: 0,
+      detectedApp: null, detectedWebsite: null,
       clicks: snap.recentClicks, keystrokes: snap.recentKeys,
       idleSeconds: snap.idleSeconds, scrollDepth: snap.scrollDepth,
       screenshotDataUrl: snap.screenshotDataUrl, screenshotUrl: null,
       screenshotFilename: snap.screenshotFilename,
       isProcessing: true, isIdle: false,
     };
-    setEntries(prev => [...prev, placeholder]);
+    // Cap entries at 100
+    setEntries(prev => [...prev.slice(-99), placeholder]);
 
-    // Upload screenshot
+    // Upload screenshot with timeout to prevent blocking
     let screenshotUrl: string | null = null;
     if (snap.screenshotBlob && snap.screenshotFilename) {
-      screenshotUrl = await uploadScreenshot(snap.screenshotBlob, snap.screenshotFilename);
+      try {
+        const uploadPromise = uploadScreenshot(snap.screenshotBlob, snap.screenshotFilename);
+        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 8000));
+        screenshotUrl = await Promise.race([uploadPromise, timeoutPromise]);
+      } catch { /* silent */ }
     }
 
-    // AI analysis
+    // AI analysis with timeout
     let activity = snap.pageType;
     let description = `Working on ${snap.pageType} in ${snap.appName}.`;
     let confidence = 0.7;
 
     try {
+      const controller = new AbortController();
+      const aiTimeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
       const res = await fetch('/api/ai/analyze-activity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           timestamp: snap.timestamp,
           previous_activity: prevActivityRef.current,
@@ -337,71 +397,81 @@ export function ActivityTracker() {
           screenshot_url: screenshotUrl,
         }),
       });
+      clearTimeout(aiTimeout);
       if (res.ok) {
         const d = await res.json();
         activity    = d.activity    || activity;
         description = d.description || description;
         confidence  = d.confidence  ?? confidence;
         prevActivityRef.current = activity;
+        // Update entry with vision-detected app/website
+        setEntries(prev => prev.map(e =>
+          e.id === entryId
+            ? { ...e, activity, description, confidence, screenshotUrl, isProcessing: false,
+                detectedApp: d.detected_app || null, detectedWebsite: d.detected_website || null }
+            : e
+        ));
+        return; // early return — already updated
       }
-    } catch { /* fallback */ }
+    } catch { /* use fallback — AI timed out or failed */ }
 
-    // Update entry
+    // Update entry (fallback path — AI failed or timed out)
     setEntries(prev => prev.map(e =>
       e.id === entryId
-        ? { ...e, activity, description, confidence, screenshotUrl, isProcessing: false }
+        ? { ...e, activity, description, confidence, screenshotUrl, isProcessing: false,
+            detectedApp: null, detectedWebsite: null }
         : e
     ));
 
-    // Auto-update timesheet
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const mins = Math.round(intervalSec / 60) || 1;
-      const taskMap: Record<string, string> = {
-        'Ticket Work': 'Ticket Resolution', 'Timesheet Entry': 'Documentation',
-        'Documentation': 'Documentation', 'Dashboard Review': 'General Support',
-        'Reports Analysis': 'Documentation', 'Settings Configuration': 'System Maintenance',
-        'Knowledge Base': 'Documentation', 'Calendar Review': 'Meeting',
-        'Idle': 'General Support', 'General Work': 'General Support',
-      };
-      const task = taskMap[activity] || 'General Support';
-      const shortDesc = `[AI Tracked] ${snap.appName} — ${snap.pageType}`;
+    // Auto-update timesheet (fire-and-forget, don't await)
+    (async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const mins = Math.round(currentIntervalSec / 60) || 1;
+        const taskMap: Record<string, string> = {
+          'Ticket Work': 'Ticket Resolution', 'Timesheet Entry': 'Documentation',
+          'Documentation': 'Documentation', 'Dashboard Review': 'General Support',
+          'Reports Analysis': 'Documentation', 'Settings Configuration': 'System Maintenance',
+          'Knowledge Base': 'Documentation', 'Calendar Review': 'Meeting',
+          'Idle': 'General Support', 'General Work': 'General Support',
+        };
+        const task = taskMap[activity] || 'General Support';
+        const shortDesc = `[AI Tracked] ${snap.appName} — ${snap.pageType}`;
 
-      const tsRes = await fetch('/api/timesheets/get-or-create', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, week_start: getWeekMonday(today), week_end: getWeekSunday(today) }),
-      });
-      if (tsRes.ok) {
-        const ts = await tsRes.json();
-        const cardsRes = await fetch(`/api/time-cards?timesheet_id=${ts.id}`);
-        if (cardsRes.ok) {
-          const cards = await cardsRes.json();
-          const existing = Array.isArray(cards) && cards.find(
-            (c: any) => c.entry_date === today && c.task === task && (c.short_description || '').startsWith('[AI Tracked]')
-          );
-          if (existing) {
-            await fetch(`/api/time-cards/${existing.id}`, {
-              method: 'PUT', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hours_worked: (parseFloat(existing.hours_worked) || 0) + mins, description, short_description: shortDesc }),
-            });
-          } else {
-            await fetch('/api/time-cards', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ timesheet_id: ts.id, user_id: userId, entry_date: today, task, hours_worked: mins, description, short_description: shortDesc, work_type: 'Remote', billable: 'Billable', status: 'Draft' }),
-            });
+        const tsRes = await fetch('/api/timesheets/get-or-create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, week_start: getWeekMonday(today), week_end: getWeekSunday(today) }),
+        });
+        if (tsRes.ok) {
+          const ts = await tsRes.json();
+          const cardsRes = await fetch(`/api/time-cards?timesheet_id=${ts.id}`);
+          if (cardsRes.ok) {
+            const cards = await cardsRes.json();
+            const existing = Array.isArray(cards) && cards.find(
+              (c: any) => c.entry_date === today && c.task === task && (c.short_description || '').startsWith('[AI Tracked]')
+            );
+            if (existing) {
+              await fetch(`/api/time-cards/${existing.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hours_worked: (parseFloat(existing.hours_worked) || 0) + mins, description, short_description: shortDesc }),
+              });
+            } else {
+              await fetch('/api/time-cards', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timesheet_id: ts.id, user_id: userId, entry_date: today, task, hours_worked: mins, description, short_description: shortDesc, work_type: 'Remote', billable: 'Billable', status: 'Draft' }),
+              });
+            }
           }
         }
-      }
-    } catch { /* silent */ }
+      } catch { /* silent */ }
+    })();
 
-    // Persist activity entry
-    try {
-      await fetch('/api/activity-entries', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, user_id: userId, activity_label: activity, description, confidence, captured_at: snap.timestamp, screenshot_url: screenshotUrl }),
-      });
-    } catch { /* silent */ }
-  }, [user, sessionId, intervalSec, uploadScreenshot]);
+    // Persist activity entry (fire-and-forget)
+    fetch('/api/activity-entries', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId, user_id: userId, activity_label: activity, description, confidence, captured_at: snap.timestamp, screenshot_url: screenshotUrl }),
+    }).catch(() => {});
+  }, []); // NO deps — reads everything from refs
 
   /* ── START ── */
   const handleStart = useCallback(async () => {
@@ -409,17 +479,18 @@ export function ActivityTracker() {
     setError(null); setSummary(null); setEntries([]);
     setElapsed(0); elapsedRef.current = 0; prevActivityRef.current = '';
 
-    const userId   = user?.uid || 'anonymous';
-    const userName = profile?.name || user?.email || 'User';
+    const userId   = userRef.current?.uid || 'anonymous';
+    const userName = profileRef.current?.name || userRef.current?.email || 'User';
     const sid      = `act_${Date.now()}`;
     setSessionId(sid);
+    sessionIdRef.current = sid; // sync ref immediately
 
     try {
       const res = await fetch('/api/activity-sessions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid, user_id: userId, user_name: userName, start_time: new Date().toISOString(), status: 'active' }),
       });
-      if (res.ok) { const d = await res.json(); setSessionDbId(String(d.id)); }
+      if (res.ok) { const d = await res.json(); setSessionDbId(String(d.id)); sessionDbIdRef.current = String(d.id); }
     } catch { /* silent */ }
 
     const watcher = new ActivityWatcher({
@@ -429,7 +500,7 @@ export function ActivityTracker() {
       onStatusChange: setStatus,
     });
     watcherRef.current = watcher;
-    watcher.start();
+    await watcher.start();
   }, [isActive, user, profile, intervalSec, captureScreenshots, processSnapshot]);
 
   /* ── STOP ── */
@@ -439,7 +510,8 @@ export function ActivityTracker() {
     watcherRef.current = null;
 
     const finalDuration = elapsedRef.current;
-    const userId = user?.uid || 'anonymous';
+    const userId = userRef.current?.uid || 'anonymous';
+    const currentSessionDbId = sessionDbIdRef.current;
 
     const done = entries.filter(e => !e.isProcessing && !e.isIdle);
     if (done.length > 0) {
@@ -452,15 +524,15 @@ export function ActivityTracker() {
       } catch { setSummary('Session completed. User was actively working during this period.'); }
     }
 
-    if (sessionDbId) {
+    if (currentSessionDbId) {
       try {
-        await fetch(`/api/activity-sessions/${sessionDbId}`, {
+        await fetch(`/api/activity-sessions/${currentSessionDbId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ stop_time: new Date().toISOString(), duration: finalDuration, status: 'completed' }),
         });
       } catch { /* silent */ }
     }
-  }, [isActive, entries, user, sessionDbId]);
+  }, [isActive, entries]);
 
   useEffect(() => () => { watcherRef.current?.stop(); }, []);
   useEffect(() => { watcherRef.current?.updateInterval(intervalSec * 1000); }, [intervalSec]);
@@ -556,9 +628,7 @@ export function ActivityTracker() {
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
               <Bot className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-blue-700">
-                <strong>No permissions needed.</strong> Detects which app/website you're using from the tab title,
-                captures canvas screenshots of the current page, generates AI descriptions every {intervalSec}s,
-                and auto-logs time to your timesheet.
+                <strong>One-time permission.</strong> Click Start — a screen picker appears once. Select <strong>Entire Screen</strong> and click Share. After that, your entire screen is captured silently every {intervalSec} seconds with no more dialogs. Stop anytime.
               </p>
             </div>
           )}

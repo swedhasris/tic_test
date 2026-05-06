@@ -234,86 +234,95 @@ function getScrollDepth(): number {
   return total > 0 ? Math.round((el.scrollTop / total) * 100) : 0;
 }
 
-/* ── Lightweight canvas screenshot (no permission needed — captures current tab DOM) ── */
+/* ── Screenshot: uses Electron desktopCapturer (silent, entire screen) when
+   running as desktop app, otherwise falls back to html2canvas ── */
 async function captureTabScreenshot(): Promise<{ dataUrl: string; blob: Blob; filename: string } | null> {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `activity_${ts}.jpeg`;
+
+  // ── Method 1: Electron desktopCapturer — silent, entire screen, no dialog ──
+  const electronAPI = (window as any).electronAPI;
+  if (electronAPI?.isElectron) {
+    try {
+      const result = await electronAPI.captureScreen();
+      if (result?.dataUrl && !result.error) {
+        // Convert base64 dataUrl to Blob
+        const res = await fetch(result.dataUrl);
+        const blob = await res.blob();
+        return { dataUrl: result.dataUrl, blob, filename };
+      }
+    } catch (err) {
+      console.warn('[ActivityCapture] Electron capture failed:', err);
+    }
+  }
+
+  // ── Method 2: html2canvas — renders DOM to canvas (browser fallback) ──
+  try {
+    const html2canvas = (await import('html2canvas')).default;
+    const canvas = await html2canvas(document.documentElement, {
+      scale: 0.8,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
+      ignoreElements: (el) => el.tagName === 'VIDEO' || el.tagName === 'IFRAME',
+    });
+    const blob = await new Promise<Blob>((res, rej) =>
+      canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.85)
+    );
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    return { dataUrl, blob, filename };
+  } catch { /* fall through */ }
+
+  // ── Method 3: Info card fallback ──
+  return captureTabScreenshotFallback();
+}
+
+async function captureTabScreenshotFallback(): Promise<{ dataUrl: string; blob: Blob; filename: string } | null> {
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `activity_${ts}.jpeg`;
-
-    // Draw visible DOM to canvas using html2canvas-style approach
-    // We render the main content area to a canvas
-    const main = document.querySelector('main') as HTMLElement || document.body;
-    const w = Math.min(main.scrollWidth || window.innerWidth, 1280);
-    const h = Math.min(main.scrollHeight || window.innerHeight, 800);
+    const w = Math.min(window.innerWidth, 1280);
+    const h = Math.min(window.innerHeight, 800);
 
     const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
 
-    // Fill background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-
-    // Draw page title
-    ctx.fillStyle = '#1e293b';
-    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#1e293b'; ctx.font = 'bold 16px system-ui';
     ctx.fillText(document.title.slice(0, 80), 20, 40);
-
-    // Draw URL
-    ctx.fillStyle = '#64748b';
-    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = '#64748b'; ctx.font = '13px system-ui';
     ctx.fillText(window.location.href.slice(0, 100), 20, 65);
-
-    // Draw timestamp
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = '#94a3b8'; ctx.font = '12px system-ui';
     ctx.fillText(new Date().toLocaleString(), 20, 85);
 
-    // Draw headings
-    const headings = getHeadings();
+    const headings = Array.from(document.querySelectorAll('h1,h2,h3'))
+      .slice(0, 5).map(el => el.textContent?.trim() || '').filter(Boolean);
     let y = 115;
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 15px system-ui, sans-serif';
-    headings.slice(0, 4).forEach(h => {
-      ctx.fillText(`• ${h.slice(0, 90)}`, 20, y);
-      y += 28;
-    });
-
-    // Draw visible text snippet
-    const text = getVisibleText();
-    ctx.fillStyle = '#334155';
-    ctx.font = '12px system-ui, sans-serif';
-    const words = text.split(' ');
-    let line = '';
-    y += 10;
-    for (const word of words) {
-      const test = line + word + ' ';
-      if (ctx.measureText(test).width > w - 40 && line) {
-        ctx.fillText(line, 20, y);
-        line = word + ' ';
-        y += 18;
-        if (y > h - 20) break;
-      } else {
-        line = test;
-      }
-    }
-    if (line && y < h - 20) ctx.fillText(line, 20, y);
+    ctx.fillStyle = '#0f172a'; ctx.font = 'bold 14px system-ui';
+    headings.forEach(h => { ctx.fillText(`• ${h.slice(0, 90)}`, 20, y); y += 26; });
 
     const blob = await new Promise<Blob>((res, rej) =>
       canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.80)
     );
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
-
-    return { dataUrl, blob, filename };
-  } catch {
-    return null;
-  }
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.80), blob, filename };
+  } catch { return null; }
 }
 
 /* ═══════════════════════════════════════════════════════════
    ActivityWatcher
+   - Requests getDisplayMedia ONCE on start (user picks screen)
+   - Holds the stream open and grabs a frame every interval
+   - No repeated permission dialogs
 ═══════════════════════════════════════════════════════════ */
 export class ActivityWatcher {
   private status: WatcherStatus = 'idle';
@@ -323,9 +332,15 @@ export class ActivityWatcher {
   private keystrokeCount = 0;
   private lastInteractionAt = Date.now();
   private wasVisible = true;
+
+  // Persistent screen capture stream — opened once, reused every interval
+  private screenStream: MediaStream | null = null;
+  private screenTrack: MediaStreamTrack | null = null;
+
   private _onClick: (e: MouseEvent) => void;
-  private _onKey: () => void;
+  private _onKey: (e: KeyboardEvent) => void;
   private _onVisibility: () => void;
+  private _onMouseMove: () => void;
 
   constructor(opts: WatcherOptions) {
     this.opts = opts;
@@ -333,18 +348,43 @@ export class ActivityWatcher {
     this._onClick = (e: MouseEvent) => {
       this.lastInteractionAt = Date.now();
       const target = e.target as HTMLElement;
-      const label =
-        target.closest('button,a,[role="button"]')?.textContent?.trim().slice(0, 50) ||
-        target.textContent?.trim().slice(0, 40) ||
-        target.getAttribute('aria-label') ||
-        target.tagName.toLowerCase();
-      if (label && label.length > 1)
-        this.recentClicks = [...this.recentClicks.slice(-4), label];
+
+      // Walk up the DOM to find the most meaningful clickable element
+      const clickable = target.closest('button, a, [role="button"], [role="tab"], [role="menuitem"], label, select, input, textarea') as HTMLElement | null;
+      const el = clickable || target;
+
+      // Get a clean, short label
+      let label =
+        el.getAttribute('aria-label')?.trim() ||
+        el.getAttribute('title')?.trim() ||
+        el.getAttribute('placeholder')?.trim() ||
+        (el as HTMLInputElement).value?.trim().slice(0, 30) ||
+        // Get direct text only (not child element text)
+        Array.from(el.childNodes)
+          .filter(n => n.nodeType === Node.TEXT_NODE)
+          .map(n => n.textContent?.trim())
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 40) ||
+        el.textContent?.trim().slice(0, 40) ||
+        el.tagName.toLowerCase();
+
+      // Clean up whitespace and skip noise
+      label = label.replace(/\s+/g, ' ').trim();
+      if (label && label.length > 1 && label.length < 60) {
+        this.recentClicks = [...this.recentClicks.slice(-9), label];
+      }
     };
 
-    this._onKey = () => {
+    this._onKey = (e: KeyboardEvent) => {
       this.lastInteractionAt = Date.now();
+      // Count all keystrokes including special keys
       this.keystrokeCount++;
+    };
+
+    // Also reset idle on mouse move (catches activity in other apps via focus events)
+    this._onMouseMove = () => {
+      this.lastInteractionAt = Date.now();
     };
 
     this._onVisibility = () => {
@@ -359,12 +399,53 @@ export class ActivityWatcher {
 
   getStatus() { return this.status; }
 
-  start() {
+  /** Request screen access once, then start the interval loop */
+  async start(): Promise<void> {
     if (this.status === 'active') return;
+
+    // Only request getDisplayMedia if server-side capture is unavailable
+    // (i.e., not running in Node/Electron context)
+    if (this.opts.captureScreenshots) {
+      // Test if server-side capture works first
+      let serverCaptureWorks = false;
+      try {
+        const test = await fetch('/api/capture-screen', { signal: AbortSignal.timeout(3000) });
+        serverCaptureWorks = test.ok;
+      } catch { /* server capture not available */ }
+
+      // Only fall back to getDisplayMedia if server capture doesn't work
+      if (!serverCaptureWorks && !(window as any).electronAPI?.isElectron) {
+        try {
+          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              frameRate: 1,
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              displaySurface: 'monitor',
+            } as any,
+            audio: false,
+            preferCurrentTab: false,
+            selfBrowserSurface: 'exclude',
+            surfaceSwitching: 'exclude',
+            systemAudio: 'exclude',
+          } as any);
+
+          this.screenTrack = this.screenStream.getVideoTracks()[0];
+          this.screenTrack.addEventListener('ended', () => this.stop());
+        } catch (err: any) {
+          console.warn('[ActivityWatcher] Screen permission denied:', err.message);
+          this.screenStream = null;
+          this.screenTrack = null;
+        }
+      }
+    }
+
     document.addEventListener('click', this._onClick, true);
     document.addEventListener('keydown', this._onKey, true);
+    document.addEventListener('mousemove', this._onMouseMove, { passive: true });
     document.addEventListener('visibilitychange', this._onVisibility);
     this.setStatus('active');
+
     this.takeSnapshot();
     this.intervalId = setInterval(() => this.takeSnapshot(), this.opts.intervalMs);
   }
@@ -372,8 +453,17 @@ export class ActivityWatcher {
   stop() {
     if (this.status !== 'active') return;
     if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+
+    // Release the screen stream
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach(t => t.stop());
+      this.screenStream = null;
+      this.screenTrack = null;
+    }
+
     document.removeEventListener('click', this._onClick, true);
     document.removeEventListener('keydown', this._onKey, true);
+    document.removeEventListener('mousemove', this._onMouseMove);
     document.removeEventListener('visibilitychange', this._onVisibility);
     this.setStatus('stopped');
   }
@@ -386,6 +476,97 @@ export class ActivityWatcher {
     }
   }
 
+  /** Grab a single frame from the persistent stream — no new permission needed */
+  private async grabScreenFrame(): Promise<{ dataUrl: string; blob: Blob; filename: string } | null> {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `activity_${ts}.jpeg`;
+
+    // ── Method 1: Electron desktopCapturer (silent, entire computer) ──
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.isElectron) {
+      try {
+        const result = await electronAPI.captureScreen();
+        if (result?.dataUrl && !result.error) {
+          const res = await fetch(result.dataUrl);
+          const blob = await res.blob();
+          return { dataUrl: result.dataUrl, blob, filename };
+        }
+      } catch { /* fall through */ }
+    }
+
+    // ── Method 2: Server-side OS capture via /api/capture-screen ──
+    // The Node.js server uses screenshot-desktop to capture the entire screen
+    // silently at OS level — no browser permission dialog needed.
+    try {
+      const res = await fetch('/api/capture-screen');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data_url && data.image_url) {
+          // Convert base64 dataUrl to Blob
+          const fetchRes = await fetch(data.data_url);
+          const blob = await fetchRes.blob();
+          return {
+            dataUrl: data.data_url,
+            blob,
+            filename: data.filename || filename,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[ActivityCapture] Server capture failed:', err);
+    }
+
+    // ── Method 3: Browser getDisplayMedia (persistent stream, one-time permission) ──
+    if (this.screenTrack && this.screenTrack.readyState === 'live') {
+      try {
+        let blob: Blob;
+
+        if (typeof ImageCapture !== 'undefined') {
+          const ic = new ImageCapture(this.screenTrack);
+          const bitmap = await ic.grabFrame();
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(bitmap.width * 0.75);
+          canvas.height = Math.round(bitmap.height * 0.75);
+          canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          bitmap.close?.();
+          blob = await new Promise<Blob>((res, rej) =>
+            canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.85)
+          );
+        } else {
+          const video = document.createElement('video');
+          video.srcObject = new MediaStream([this.screenTrack]);
+          video.muted = true;
+          video.playsInline = true;
+          await new Promise<void>((res, rej) => {
+            video.onloadedmetadata = () => video.play().then(res).catch(rej);
+            setTimeout(() => rej(new Error('timeout')), 3000);
+          });
+          await new Promise(r => requestAnimationFrame(r));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(video.videoWidth * 0.75);
+          canvas.height = Math.round(video.videoHeight * 0.75);
+          canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
+          video.pause(); video.srcObject = null;
+          blob = await new Promise<Blob>((res, rej) =>
+            canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.85)
+          );
+        }
+
+        const dataUrl = await new Promise<string>(res => {
+          const r = new FileReader();
+          r.onload = () => res(r.result as string);
+          r.readAsDataURL(blob);
+        });
+        return { dataUrl, blob, filename };
+      } catch (err) {
+        console.warn('[ActivityWatcher] Frame grab failed:', err);
+      }
+    }
+
+    // ── Method 4: html2canvas fallback ──
+    return captureTabScreenshot();
+  }
+
   private async takeSnapshot() {
     if (this.status !== 'active') return;
     const url = window.location.pathname;
@@ -394,13 +575,12 @@ export class ActivityWatcher {
     const idleSeconds = Math.floor((Date.now() - this.lastInteractionAt) / 1000);
     const app = detectApp(title, fullUrl);
 
-    // Capture tab screenshot (canvas-based, no permission)
     let screenshotDataUrl: string | null = null;
     let screenshotBlob: Blob | null = null;
     let screenshotFilename: string | null = null;
 
     if (this.opts.captureScreenshots) {
-      const cap = await captureTabScreenshot();
+      const cap = await this.grabScreenFrame();
       if (cap) {
         screenshotDataUrl = cap.dataUrl;
         screenshotBlob = cap.blob;

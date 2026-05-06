@@ -1311,7 +1311,7 @@ Respond ONLY with valid JSON.`;
     console.error('[DB] Activity tracker tables init failed:', e.message);
   }
 
-  // ═══ AI ANALYZE ACTIVITY ═══
+  // ═══ AI ANALYZE ACTIVITY (Vision-powered — Gemini sees the actual screenshot) ═══
   app.post('/api/ai/analyze-activity', async (req: any, res: any) => {
     try {
       const {
@@ -1320,6 +1320,7 @@ Respond ONLY with valid JSON.`;
         headings, formData, recentClicks,
         recentKeys, idleSeconds, scrollDepth,
         badges, visibleText,
+        screenshot_url,   // server-side path e.g. /uploads/screenshots/activity_xxx.jpeg
       } = req.body;
 
       const apiKey = process.env.GEMINI_API_KEY;
@@ -1327,60 +1328,114 @@ Respond ONLY with valid JSON.`;
         return res.json(activityFallback(previous_activity, pageUrl, pageType, idleSeconds, appName, ticketNumber));
       }
 
-      const app_    = appName || 'Connect IT';
-      const prevStr = previous_activity ? `\nPrevious activity: ${previous_activity}` : '';
-      const idleStr = idleSeconds > 60 ? `\nUser has been idle for ${idleSeconds} seconds — likely away from keyboard.` : '';
-      const tickStr = ticketNumber ? `\nActive ticket: ${ticketNumber}` : '';
+      const app_     = appName || 'Connect IT';
+      const prevStr  = previous_activity ? `\nPrevious activity: ${previous_activity}` : '';
+      const idleStr  = idleSeconds > 60  ? `\nUser idle for ${idleSeconds}s.` : '';
+      const tickStr  = ticketNumber      ? `\nActive ticket: ${ticketNumber}` : '';
       const clickStr = recentClicks?.length ? `\nRecent clicks: ${recentClicks.join(' → ')}` : '';
-      const keyStr  = recentKeys > 0 ? `\nKeystrokes since last snapshot: ${recentKeys}` : '';
-      const headStr = headings?.length ? `\nPage headings: ${headings.join(' | ')}` : '';
-      const formStr = formData && Object.keys(formData).length
-        ? `\nActive form fields: ${Object.entries(formData).map(([k,v]) => `${k}="${v}"`).join(', ')}`
-        : '';
-      const badgeStr = badges?.length ? `\nStatus badges visible: ${badges.join(', ')}` : '';
-      const textStr  = visibleText ? `\nVisible content snippet: ${visibleText}` : '';
+      const keyStr   = recentKeys > 0    ? `\nKeystrokes: ${recentKeys}` : '';
+      const headStr  = headings?.length  ? `\nPage headings: ${headings.join(' | ')}` : '';
+      const formStr  = formData && Object.keys(formData).length
+        ? `\nForm fields: ${Object.entries(formData).map(([k,v]) => `${k}="${v}"`).join(', ')}` : '';
+      const textStr  = visibleText       ? `\nVisible text: ${visibleText}` : '';
 
-      const prompt = `You are an AI work activity analyzer monitoring a user inside "${app_}", an IT service management application.
+      const contextText = `You are an AI model that analyzes screenshots of a user's computer screen.
+Your task is to identify the application, detect the website (if any), understand the activity, and generate a short professional description.
 
-Application: ${app_}
-Current page: ${pageType || pageUrl}
-Page title: ${pageTitle || 'unknown'}
-Scroll depth: ${scrollDepth || 0}%${tickStr}${prevStr}${idleStr}${clickStr}${keyStr}${headStr}${formStr}${badgeStr}${textStr}
+OBJECTIVE:
+From the screenshot, return: application name, website name (if browser), activity type, short professional description, confidence score.
 
-Based on this context, determine what the user is doing. Choose ONE activity label from:
-Ticket Work, Timesheet Entry, Documentation, Dashboard Review, Reports Analysis,
-Settings Configuration, Knowledge Base, Calendar Review, Idle, General Work
+INSTRUCTIONS:
+- Carefully analyze the screenshot visually
+- Identify the main active application (ignore background apps)
+- If it is a browser: detect the website name (e.g., ChatGPT, YouTube, Gmail, GitHub, etc.)
+- Recognize activity type from: Coding, Development, Browsing, Documentation, Communication, Design, Ticket Work, Timesheet Entry, Dashboard Review, Reports Analysis, Idle, Unclear
+- Generate a clear professional description (1-2 lines) using action-based wording: "Working on...", "Reviewing...", "Interacting with...", "Developing..."
+- Avoid repetition. Do NOT hallucinate unknown tools.
+- If unsure: set app = "Unknown", activity = "Unclear"
 
-IMPORTANT RULES:
-- ALWAYS mention the app name "${app_}" in the description
-- ALWAYS mention the specific page (${pageType}) in the description
-- If a ticket number is present (${ticketNumber || 'none'}), mention it by name
-- If idle > 60s, label as "Idle" and say user is away
-- Be specific: mention what form fields are being filled, what was clicked, what headings are visible
-- Use action verbs: "Reviewing...", "Updating...", "Working on...", "Navigating to..."
-- 1-2 sentences max, professional tone
-- Do NOT say "User is actively working in the application" — be specific
+ADDITIONAL CONTEXT (from DOM/browser):
+App detected from tab: ${app_}
+Page: ${pageType || pageUrl}
+Page title: ${pageTitle || 'unknown'}${tickStr}${prevStr}${idleStr}${clickStr}${keyStr}${headStr}${formStr}${textStr}
 
-Example good descriptions:
-- "Reviewing incident INC0012345 in Connect IT's Ticket Detail page, checking SLA status and resolution notes."
-- "Updating timesheet entries in Connect IT's Weekly Timesheet, logging 3 hours for ticket work."
-- "Browsing the Knowledge Base in Connect IT, reading articles related to network troubleshooting."
+EXAMPLES:
+Screenshot showing ChatGPT in Chrome → {"app":"Google Chrome","website":"ChatGPT","activity":"Browsing","description":"Interacting with ChatGPT to generate and review responses","confidence":0.95}
+VS Code editor open → {"app":"Visual Studio Code","website":null,"activity":"Coding","description":"Developing and editing source code in the IDE","confidence":0.93}
+Microsoft Word document → {"app":"Microsoft Word","website":null,"activity":"Documentation","description":"Writing and editing a document in Microsoft Word","confidence":0.90}
+Unclear screen → {"app":"Unknown","website":null,"activity":"Unclear","description":"User activity could not be determined from the screen","confidence":0.40}
 
-Respond ONLY with valid JSON:
-{"activity": "Ticket Work", "description": "Reviewing incident INC0012345 in Connect IT...", "confidence": 0.92}`;
+RULES:
+- Do NOT guess random apps
+- Do NOT generate long paragraphs
+- Do NOT include extra text outside JSON
+- Always return valid JSON
+- Focus only on visible content
+- Be accurate over creative, concise, consistent
+- Prefer clarity over assumption
+
+OUTPUT FORMAT (STRICT JSON — no markdown, no extra text):
+{"app":"Application Name","website":"Website Name or null","activity":"Activity Type","description":"Short professional description","confidence":0.0}`;
 
       const ai = new GoogleGenAI({ apiKey });
-      const result = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+
+      // ── Vision mode: send screenshot image to Gemini ──
+      let contents: any;
+
+      if (screenshot_url) {
+        try {
+          // Read the saved screenshot file and send as inline base64 image
+          const screenshotPath = path.join(__dirname, 'public', screenshot_url);
+          if (fs.existsSync(screenshotPath)) {
+            const imageBuffer = fs.readFileSync(screenshotPath);
+            const base64Image = imageBuffer.toString('base64');
+            const mimeType = screenshot_url.endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+            // Gemini Vision: text prompt + inline image
+            contents = [
+              { text: contextText },
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Image,
+                },
+              },
+            ];
+          }
+        } catch (imgErr: any) {
+          console.warn('[AI Activity] Could not load screenshot for vision:', imgErr.message);
+        }
+      }
+
+      // Fallback to text-only if no image
+      if (!contents) {
+        contents = contextText;
+      }
+
+      const result = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents,
+      });
+
       const raw = (result.text || '').replace(/```json\s*/g, '').replace(/```/g, '').trim();
 
       let parsed: any;
       try { parsed = JSON.parse(raw); }
       catch { parsed = activityFallback(previous_activity, pageUrl, pageType, idleSeconds, appName, ticketNumber); }
 
+      // Map new format fields → response
+      const detectedApp     = parsed.app      || parsed.detected_app     || appName || null;
+      const detectedWebsite = parsed.website  || parsed.detected_website || null;
+      const activityLabel   = parsed.activity || 'General Work';
+      const description     = parsed.description || `Working in ${app_} on ${pageType || 'the application'}.`;
+      const confidence      = parsed.confidence ?? 0.7;
+
       res.json({
-        activity:    parsed.activity    || 'General Work',
-        description: parsed.description || `Working in ${app_} on ${pageType || 'the application'}.`,
-        confidence:  parsed.confidence  ?? 0.7,
+        activity:         activityLabel,
+        description,
+        confidence,
+        detected_app:     detectedApp,
+        detected_website: detectedWebsite,
       });
     } catch (error: any) {
       console.error('[AI Analyze Activity] Error:', error.message);
@@ -1449,18 +1504,24 @@ Respond ONLY with valid JSON:
         ? `${Math.floor(duration_seconds / 3600)}h ${Math.floor((duration_seconds % 3600) / 60)}m`
         : 'unknown';
 
-      const prompt = `You are an AI work session summarizer. Generate a concise professional summary of a user's work session.
+      const prompt = `You are an AI work session summarizer trained to generate professional timesheet summaries.
 
 Session duration: ${durationStr}
 Activity log:
 ${activityList}
 
-Write a 2-3 sentence professional summary describing:
-1. What the user primarily worked on
-2. Any task transitions or variety
-3. Overall productivity assessment
+INSTRUCTIONS:
+- Write a 2-3 sentence professional summary for a timesheet/work report
+- Mention the specific apps and websites the user worked with (e.g., "VS Code", "ChatGPT", "Gmail")
+- Mention the types of tasks performed (coding, reviewing, communicating, etc.)
+- Note any task transitions or variety in work
+- Use past tense, professional tone
+- Do NOT use bullet points
+- Be specific — mention app names and activity types from the log above
 
-Be specific, professional, and use past tense. Do NOT use bullet points.
+EXAMPLE OUTPUT:
+"The user spent the session developing code in VS Code and reviewing pull requests on GitHub. They also interacted with ChatGPT for AI assistance and reviewed incident tickets in Connect IT. The session showed a productive mix of development and support activities."
+
 Respond ONLY with JSON: {"summary": "your summary here"}`;
 
       const ai = new GoogleGenAI({ apiKey });
@@ -1617,6 +1678,45 @@ Respond ONLY with JSON: {"summary": "your summary here"}`;
 
   // Serve uploaded screenshots statically
   app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+
+  // ═══ SILENT FULL-SCREEN CAPTURE (no browser permission needed) ═══
+  // Uses screenshot-desktop to capture the entire screen at OS level.
+  // Called by the Activity Tracker every 15 seconds.
+  app.get('/api/capture-screen', async (req: any, res: any) => {
+    try {
+      const screenshotDesktop = await import('screenshot-desktop');
+      const capture = screenshotDesktop.default || screenshotDesktop;
+
+      // Capture entire screen as JPEG buffer
+      const imgBuffer: Buffer = await capture({ format: 'jpg' });
+
+      // Save to uploads folder
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `activity_${ts}.jpeg`;
+      const savePath = path.join(__dirname, 'public', 'uploads', 'screenshots', filename);
+
+      // Ensure directory exists
+      if (!fs.existsSync(path.dirname(savePath))) {
+        fs.mkdirSync(path.dirname(savePath), { recursive: true });
+      }
+      fs.writeFileSync(savePath, imgBuffer);
+
+      const imageUrl = `/uploads/screenshots/${filename}`;
+      const base64 = imgBuffer.toString('base64');
+      const dataUrl = `data:image/jpeg;base64,${base64}`;
+
+      res.json({
+        success: true,
+        image_url: imageUrl,
+        data_url: dataUrl,
+        filename,
+        size_kb: Math.round(imgBuffer.length / 1024),
+      });
+    } catch (error: any) {
+      console.error('[Screen Capture] Failed:', error.message);
+      res.status(500).json({ error: error.message || 'Screen capture failed' });
+    }
+  });
 
   // ═══ AI GENERATE NOTES (for Work Notes Chat) ═══
   app.post('/api/ai/generate-notes', async (req: any, res: any) => {
