@@ -263,6 +263,7 @@ export function Timesheet() {
       setTicketsLoading(false);
     }, (error) => {
       console.error("[Timesheet] Error fetching tickets:", error);
+      setOpenTickets([]);
       setTicketsLoading(false);
     });
 
@@ -545,11 +546,11 @@ export function Timesheet() {
   }
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto">
+    <div className="space-y-4 max-w-7xl mx-auto min-w-0">
 
       {/* ═══ TOP ACTION BAR ═══ */}
-      <div className="flex items-center justify-between bg-white p-3 border border-border rounded-lg shadow-sm">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 bg-white p-3 border border-border rounded-lg shadow-sm lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Link to="/timesheet/weekly" className="p-1.5 hover:bg-muted rounded transition-colors" title="Back to Weekly View">
             <ChevronRight className="w-4 h-4 rotate-180" />
           </Link>
@@ -572,7 +573,7 @@ export function Timesheet() {
           </div>
           <button className="p-1.5 hover:bg-muted rounded transition-colors" title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></button>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[timesheet?.status] || STATUS_COLORS.Draft}`}>
             {timesheet?.status || "Draft"}
           </span>
@@ -778,7 +779,7 @@ export function Timesheet() {
               {timeCards.length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Saved Entries ({timeCards.length})</h4>
-                  <div className="border border-border rounded-lg overflow-hidden">
+                  <div className="border border-border rounded-lg overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-muted/30 text-xs font-bold uppercase text-muted-foreground border-b border-border">
@@ -852,27 +853,27 @@ export function Timesheet() {
       {/* ═══ SEND NOTES AS EMAIL ═══ */}
       <Section title="Send Notes as Email" icon={<Mail className="w-4 h-4 text-blue-600" />} defaultOpen={false}>
         <div className="p-5 space-y-3">
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">From:</label>
-            <div className="col-span-5 text-sm">{emailFrom}</div>
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">From:</label>
+            <div className="text-sm md:col-span-5">{emailFrom}</div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Contact:</label>
-            <div className="col-span-5 flex items-center gap-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">Contact:</label>
+            <div className="flex items-center gap-2 md:col-span-5">
               <input type="checkbox" checked={emailContact} onChange={e => setEmailContact(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
               <span className="text-sm">{emailContactName || "N/A"}</span>
             </div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Resources:</label>
-            <div className="col-span-5 flex items-center gap-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">Resources:</label>
+            <div className="flex items-center gap-2 md:col-span-5">
               <input type="checkbox" checked={emailResources} onChange={e => setEmailResources(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
               <span className="text-sm">{profile?.name || ""}</span>
             </div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Cc:</label>
-            <div className="col-span-5 flex items-center gap-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">Cc:</label>
+            <div className="flex items-center gap-2 md:col-span-5">
               <input type="checkbox" checked={emailCc} onChange={e => setEmailCc(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
               {emailCc && (
                 <select className="flex-grow p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8">
@@ -881,15 +882,15 @@ export function Timesheet() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">Bundled Tickets:</label>
-            <div className="col-span-5 flex items-center gap-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">Bundled Tickets:</label>
+            <div className="flex items-center gap-2 md:col-span-5">
               <input type="checkbox" checked={emailBundled} onChange={e => setEmailBundled(e.target.checked)} className="w-4 h-4 accent-blue-600 rounded" />
             </div>
           </div>
-          <div className="grid grid-cols-6 items-start gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-1">Attachments:</label>
-            <div className="col-span-5 space-y-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-start md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1 md:mt-1">Attachments:</label>
+            <div className="space-y-2 md:col-span-5">
               <div className="flex items-center gap-3">
                 <input type="file" className="text-xs" />
                 <span className="text-xs text-muted-foreground">or</span>
@@ -939,9 +940,9 @@ export function Timesheet() {
         defaultOpen={false}
       >
         <div className="p-5 space-y-4">
-          <div className="grid grid-cols-6 items-center gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1">To:</label>
-            <div className="col-span-5 flex items-center gap-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-center md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1">To:</label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center md:col-span-5">
               <select value={waCountryCode} onChange={e => setWaCountryCode(e.target.value)}
                 className="p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8 w-20">
                 <option value="+91">+91</option>
@@ -955,9 +956,9 @@ export function Timesheet() {
                 className="flex-grow p-1.5 border border-border rounded text-xs outline-none focus:ring-1 focus:ring-sn-green h-8" />
             </div>
           </div>
-          <div className="grid grid-cols-6 items-start gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-2">Message:</label>
-            <div className="col-span-5">
+          <div className="grid gap-2 md:grid-cols-6 md:items-start md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1 md:mt-2">Message:</label>
+            <div className="md:col-span-5">
               <textarea
                 value={waMessage}
                 onChange={e => { setWaMessage(e.target.value); setWaAutoSync(false); }}
@@ -973,9 +974,9 @@ export function Timesheet() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-6 items-start gap-3">
-            <label className="text-xs text-muted-foreground font-medium col-span-1 mt-1">Attachments:</label>
-            <div className="col-span-5 space-y-2">
+          <div className="grid gap-2 md:grid-cols-6 md:items-start md:gap-3">
+            <label className="text-xs text-muted-foreground font-medium md:col-span-1 md:mt-1">Attachments:</label>
+            <div className="space-y-2 md:col-span-5">
               <div className="flex items-center gap-3">
                 <input type="file" className="text-xs" />
                 <span className="text-xs text-muted-foreground">or</span>
@@ -1092,7 +1093,7 @@ export function Timesheet() {
       </Section>
 
       {/* ═══ QUICK STATS FOOTER ═══ */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Week Total", value: `${weekTotal.toFixed(0)} mins`, color: "text-sn-dark" },
           { label: "Daily Average", value: `${(weekTotal / 7).toFixed(0)} mins`, color: "text-blue-600" },

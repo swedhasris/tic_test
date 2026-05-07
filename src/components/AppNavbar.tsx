@@ -8,17 +8,17 @@ export function AppNavbar() {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   return (
-    <header className="h-16 bg-background border-b border-border flex items-center justify-between px-8 sticky top-0 z-10">
-      <div className="flex items-center gap-4 bg-muted/50 px-4 py-2 rounded-md w-96">
+    <header className="h-16 bg-background border-b border-border flex items-center justify-between gap-3 px-3 sm:px-5 lg:px-8 sticky top-0 z-10">
+      <div className="flex min-w-0 flex-1 items-center gap-3 bg-muted/50 px-3 sm:px-4 py-2 rounded-md max-w-xs sm:max-w-sm lg:max-w-md">
         <Search className="w-4 h-4 text-muted-foreground" />
         <input 
           type="text" 
           placeholder="Search tickets, users..." 
-          className="bg-transparent border-none outline-none text-sm w-full"
+          className="bg-transparent border-none outline-none text-sm w-full min-w-0"
         />
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4 lg:gap-6">
         {/* Theme Toggle */}
         <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
           <button
@@ -49,7 +49,7 @@ export function AppNavbar() {
           <span className="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full" />
         </button>
         
-        <div className="flex items-center gap-3 pl-6 border-l border-border">
+        <div className="flex items-center gap-3 pl-3 sm:pl-6 border-l border-border">
           <div className="text-right hidden sm:block">
             <div className="text-sm font-semibold">{profile?.name || "User"}</div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">{profile?.role || "Guest"}</div>

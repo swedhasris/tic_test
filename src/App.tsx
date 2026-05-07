@@ -66,9 +66,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     <TicketsProvider>
       <div className="flex min-h-screen bg-background">
         <Sidebar />
-        <div className="flex-grow flex flex-col overflow-hidden">
+        <div className="flex-grow min-w-0 flex flex-col overflow-hidden">
           <AppNavbar />
-          <main className="flex-grow p-8 overflow-y-auto">
+          <main className="flex-grow min-w-0 p-4 sm:p-6 lg:p-8 overflow-auto">
             <ErrorBoundary>
               <Suspense fallback={<LoadingScreen />}>
                 {children}

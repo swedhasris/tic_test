@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { RefreshCw, LayoutGrid } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn, formatDate } from "../lib/utils";
+import { ChartPanel } from "../components/ChartPanel";
 
 function SLATimer({ deadline, metAt, isPaused, onHoldStart, totalPausedTime = 0, label, waitUntil }: { deadline: string, metAt?: string, isPaused?: boolean, onHoldStart?: string, totalPausedTime?: number, label: string, waitUntil?: string | null }) {
   const [displayTime, setDisplayTime] = useState("");
@@ -73,14 +74,29 @@ export function Dashboard() {
   const [users, setUsers] = useState<any[]>([]);
 
   useEffect(() => {
-    const unsubTickets = onSnapshot(query(collection(db, "tickets")), snap => {
-      setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-      setLastRefresh(new Date());
-    });
-    const unsubUsers = onSnapshot(query(collection(db, "users")), snap => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const unsubTickets = onSnapshot(
+      query(collection(db, "tickets")),
+      (snap) => {
+        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+        setLastRefresh(new Date());
+      },
+      (error) => {
+        console.error("[Dashboard] Failed to subscribe to tickets:", error);
+        setTickets([]);
+        setLoading(false);
+      }
+    );
+    const unsubUsers = onSnapshot(
+      query(collection(db, "users")),
+      (snap) => {
+        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (error) => {
+        console.error("[Dashboard] Failed to subscribe to users:", error);
+        setUsers([]);
+      }
+    );
     return () => { unsubTickets(); unsubUsers(); };
   }, []);
 
@@ -139,9 +155,9 @@ export function Dashboard() {
     <div className="space-y-6 max-w-7xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-border">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-border">
         <h1 className="text-lg font-bold text-foreground">Incident Overview</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setLastRefresh(new Date())}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded text-xs font-medium hover:bg-muted transition-colors"
@@ -161,7 +177,7 @@ export function Dashboard() {
 
       {/* 6 Stat Cards — 3 columns × 2 rows */}
       <div className="bg-white border border-border rounded-lg shadow-sm overflow-hidden">
-        <div className="grid grid-cols-3 divide-x divide-border">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border">
           {statCards.slice(0, 3).map((s, i) => (
             <Link key={i} to={s.link} className="p-6 text-center hover:bg-muted/10 transition-colors group">
               <div className="text-sm font-semibold text-foreground mb-2">{s.label}</div>
@@ -171,7 +187,7 @@ export function Dashboard() {
             </Link>
           ))}
         </div>
-        <div className="grid grid-cols-3 divide-x divide-border border-t border-border">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border border-t border-border">
           {statCards.slice(3, 6).map((s, i) => (
             <Link key={i} to={s.link} className="p-6 text-center hover:bg-muted/10 transition-colors group">
               <div className="text-sm font-semibold text-foreground mb-2">{s.label}</div>
@@ -191,8 +207,8 @@ export function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Open Incidents — Grouped by Priority</h3>
           </div>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
+          <ChartPanel className="h-56 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <BarChart data={priorityGroups} layout="vertical" margin={{ left: 10, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" fontSize={11} allowDecimals={false} />
@@ -208,7 +224,7 @@ export function Dashboard() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartPanel>
           {/* Legend */}
           <div className="flex flex-wrap gap-3 mt-3">
             {Object.entries(PRIORITY_COLORS).map(([label, color]) => (
@@ -225,8 +241,8 @@ export function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Open Incidents older than 30 Days — Grouped</h3>
           </div>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
+          <ChartPanel className="h-56 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <BarChart data={older30Groups} layout="vertical" margin={{ left: 10, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" fontSize={11} allowDecimals={false} />
@@ -242,7 +258,7 @@ export function Dashboard() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartPanel>
           <div className="flex flex-wrap gap-3 mt-3">
             {Object.entries(PRIORITY_COLORS).map(([label, color]) => (
               <div key={label} className="flex items-center gap-1.5 text-[10px]">

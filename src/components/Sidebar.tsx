@@ -66,16 +66,31 @@ export function Sidebar() {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const isDarkMode = resolvedTheme === "dark";
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 1024);
   const [expandedSections, setExpandedSections] = useState<string[]>(() => {
     const saved = localStorage.getItem("sn-sidebar-expanded");
     return saved ? JSON.parse(saved) : ["Favorites", "Incident"];
   });
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 1024);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     localStorage.setItem("sn-sidebar-expanded", JSON.stringify(expandedSections));
   }, [expandedSections]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      if (mobile) {
+        setIsCollapsed(true);
+      }
+    };
+
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const menuStructure: MenuItem[] = [
     {
@@ -173,8 +188,9 @@ export function Sidebar() {
 
   return (
     <aside className={cn(
-      "bg-sn-sidebar text-white flex flex-col h-screen sticky top-0 transition-all duration-300 border-r border-white/10",
-      isCollapsed ? "w-16" : "w-64"
+      "bg-sn-sidebar text-white flex flex-col h-screen sticky top-0 shrink-0 transition-all duration-300 border-r border-white/10 overflow-hidden",
+      isCollapsed ? "w-16" : "w-64",
+      isMobile && "z-20"
     )}>
       {/* Sidebar Header */}
       <div className="p-4 flex items-center justify-between border-b border-white/10 h-16">

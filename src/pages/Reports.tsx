@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { ROLE_HIERARCHY, Role } from "../lib/roles";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Map } from "lucide-react";
+import { ChartPanel } from "../components/ChartPanel";
 
 export function Reports() {
   const { user, profile } = useAuth();
@@ -22,31 +23,28 @@ export function Reports() {
       : query(ticketsRef, where("createdBy", "==", user.uid));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tickets = snapshot.docs.map(doc => doc.data());
+      const tickets = snapshot.docs.map((doc) => doc.data());
 
-      // Status Distribution
-      const statusCounts: any = {};
-      tickets.forEach((t: any) => {
-        statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+      const statusCounts: Record<string, number> = {};
+      tickets.forEach((ticket: any) => {
+        statusCounts[ticket.status] = (statusCounts[ticket.status] || 0) + 1;
       });
-      setData(Object.keys(statusCounts).map(status => ({ name: status, count: statusCounts[status] })));
+      setData(Object.keys(statusCounts).map((status) => ({ name: status, count: statusCounts[status] })));
 
-      // Category Distribution
-      const catCounts: any = {};
-      tickets.forEach((t: any) => {
-        catCounts[t.category] = (catCounts[t.category] || 0) + 1;
+      const categoryCounts: Record<string, number> = {};
+      tickets.forEach((ticket: any) => {
+        categoryCounts[ticket.category] = (categoryCounts[ticket.category] || 0) + 1;
       });
-      setCategoryData(Object.keys(catCounts).map(cat => ({ name: cat, value: catCounts[cat] })));
+      setCategoryData(Object.keys(categoryCounts).map((category) => ({ name: category, value: categoryCounts[category] })));
 
-      // SLA Compliance
       const slaCounts = { "Within SLA": 0, "At Risk": 0, "Breached": 0 };
-      tickets.forEach((t: any) => {
-        const resStatus = t.resolutionSlaStatus || "In Progress";
-        const respStatus = t.responseSlaStatus || "In Progress";
+      tickets.forEach((ticket: any) => {
+        const resolutionStatus = ticket.resolutionSlaStatus || "In Progress";
+        const responseStatus = ticket.responseSlaStatus || "In Progress";
 
-        if (resStatus === "Breached" || respStatus === "Breached") {
+        if (resolutionStatus === "Breached" || responseStatus === "Breached") {
           slaCounts["Breached"]++;
-        } else if (resStatus === "At Risk" || respStatus === "At Risk") {
+        } else if (resolutionStatus === "At Risk" || responseStatus === "At Risk") {
           slaCounts["At Risk"]++;
         } else {
           slaCounts["Within SLA"]++;
@@ -55,16 +53,18 @@ export function Reports() {
       setSlaData([
         { name: "Within SLA", value: slaCounts["Within SLA"] },
         { name: "At Risk", value: slaCounts["At Risk"] },
-        { name: "Breached", value: slaCounts["Breached"] }
+        { name: "Breached", value: slaCounts["Breached"] },
       ]);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "tickets");
     });
-    return unsubscribe;
-  }, []);
 
-  const COLORS = ["#81B532", "#151B26", "#3b82f6", "#ef4444", "#f59e0b"];
-  const SLA_COLORS = ["#81B532", "#f59e0b", "#ef4444"];
+    return unsubscribe;
+  }, [profile, user]);
+
+  const colors = ["#81B532", "#151B26", "#3b82f6", "#ef4444", "#f59e0b"];
+  const slaColors = ["#81B532", "#f59e0b", "#ef4444"];
+  const slaChartData = slaData.some((item) => item.value > 0) ? slaData : [{ name: "No Data", value: 1 }];
 
   return (
     <div className="space-y-8">
@@ -73,54 +73,51 @@ export function Reports() {
         <p className="text-muted-foreground">Visual insights into service desk performance.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* SLA Compliance Widget */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <div className="sn-card">
-          <h3 className="text-lg font-bold mb-6">SLA Compliance Rate</h3>
-          <div className="h-64 w-full relative">
-            <ResponsiveContainer width="100%" height="100%">
+          <h3 className="mb-6 text-lg font-bold">SLA Compliance Rate</h3>
+          <ChartPanel className="relative h-64 w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <PieChart>
                 <Pie
-                  data={slaData.some(d => d.value > 0) ? slaData : [{ name: "No Data", value: 1 }]}
+                  data={slaChartData}
                   cx="50%"
                   cy="50%"
                   innerRadius={75}
                   outerRadius={105}
-                  paddingAngle={slaData.some(d => d.value > 0) ? 3 : 0}
+                  paddingAngle={slaData.some((item) => item.value > 0) ? 3 : 0}
                   dataKey="value"
                   startAngle={90}
                   endAngle={-270}
                 >
-                  {(slaData.some(d => d.value > 0) ? slaData : [{ name: "No Data", value: 1 }]).map((entry, index) => (
+                  {slaChartData.map((entry, index) => (
                     <Cell
-                      key={`cell-${index}`}
-                      fill={slaData.some(d => d.value > 0) ? SLA_COLORS[index % SLA_COLORS.length] : "#e2e8f0"}
+                      key={`${entry.name}-${index}`}
+                      fill={slaData.some((item) => item.value > 0) ? slaColors[index % slaColors.length] : "#e2e8f0"}
                     />
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: any, name: any) => [value + " tickets", name]}
+                  formatter={(value: any, name: any) => [`${value} tickets`, name]}
                   contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
                 />
               </PieChart>
             </ResponsiveContainer>
-            {/* Center text — pointer-events-none so it never blocks tooltip */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
-              <span className="text-4xl font-bold text-sn-dark dark:text-white leading-none">
+            <div className="pointer-events-none absolute inset-0 flex select-none flex-col items-center justify-center">
+              <span className="text-4xl font-bold leading-none text-sn-dark dark:text-white">
                 {(() => {
-                  const total = slaData.reduce((sum, d) => sum + d.value, 0);
+                  const total = slaData.reduce((sum, item) => sum + item.value, 0);
                   const withinSla = slaData[0]?.value ?? 0;
                   return total > 0 ? Math.round((withinSla / total) * 100) : 0;
                 })()}%
               </span>
-              <span className="text-xs text-muted-foreground font-medium mt-1">Compliance</span>
+              <span className="mt-1 text-xs font-medium text-muted-foreground">Compliance</span>
             </div>
-          </div>
-          {/* Legend */}
-          <div className="flex justify-center gap-6 mt-4">
+          </ChartPanel>
+          <div className="mt-4 flex justify-center gap-6">
             {slaData.map((entry, index) => (
               <div key={entry.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: SLA_COLORS[index % SLA_COLORS.length] }} />
+                <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: slaColors[index % slaColors.length] }} />
                 <span className="text-sm font-medium text-foreground">{entry.name}:&nbsp;<strong>{entry.value}</strong></span>
               </div>
             ))}
@@ -128,9 +125,9 @@ export function Reports() {
         </div>
 
         <div className="sn-card">
-          <h3 className="text-lg font-bold mb-6">Ticket Status Distribution</h3>
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <h3 className="mb-6 text-lg font-bold">Ticket Status Distribution</h3>
+          <ChartPanel className="h-80 w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <BarChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" fontSize={12} />
@@ -141,13 +138,13 @@ export function Reports() {
                 <Bar dataKey="count" fill="#81B532" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartPanel>
         </div>
 
         <div className="sn-card">
-          <h3 className="text-lg font-bold mb-6">Tickets by Category</h3>
-          <div className="h-80 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
+          <h3 className="mb-6 text-lg font-bold">Tickets by Category</h3>
+          <ChartPanel className="flex h-80 w-full min-w-0 items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <PieChart>
                 <Pie
                   data={categoryData}
@@ -159,26 +156,27 @@ export function Reports() {
                   dataKey="value"
                 >
                   {categoryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`${entry.name}-${index}`} fill={colors[index % colors.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
-          </div>
-          <div className="flex flex-wrap justify-center gap-4 mt-4">
+          </ChartPanel>
+          <div className="mt-4 flex flex-wrap justify-center gap-4">
             {categoryData.map((entry, index) => (
               <div key={entry.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
                 <span className="text-xs font-medium">{entry.name}</span>
               </div>
             ))}
           </div>
         </div>
+
         <div className="sn-card lg:col-span-2">
-          <h3 className="text-lg font-bold mb-6">Critical Incidents Map</h3>
-          <div className="h-96 w-full bg-muted/30 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground">
-            <Map className="w-12 h-12 mb-4 opacity-20" />
+          <h3 className="mb-6 text-lg font-bold">Critical Incidents Map</h3>
+          <div className="flex h-96 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground">
+            <Map className="mb-4 h-12 w-12 opacity-20" />
             <p className="font-medium">Geospatial Incident Visualization</p>
             <p className="text-xs">Integration with Google Maps API pending configuration.</p>
           </div>

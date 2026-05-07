@@ -165,6 +165,11 @@ async function generateTicketNumber(): Promise<string> {
 
 // SLA Escalation Engine
 async function escalateStaleTickets() {
+  if (useSQLite) {
+    console.log("[SLA Engine] Skipping ticket SLA checks while running in SQLite fallback mode");
+    return;
+  }
+
   console.log(`[SLA Engine] Checking tickets...`);
   const now = new Date();
   const nowStr = formatDate(now);
@@ -257,49 +262,53 @@ async function startServer() {
   await initDatabase();
   await testConnection();
 
-  // Auto-create timesheet tables if they don't exist
-  try {
-    await execute(`
-      CREATE TABLE IF NOT EXISTS timesheets (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id VARCHAR(128) NOT NULL,
-        week_start DATE NOT NULL,
-        week_end DATE NOT NULL,
-        status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
-        total_hours DECIMAL(10, 2) DEFAULT 0.00,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        submitted_at TIMESTAMP NULL,
-        INDEX idx_user_week (user_id, week_start),
-        INDEX idx_status (status)
-      ) ENGINE=InnoDB
-    `);
-    await execute(`
-      CREATE TABLE IF NOT EXISTS time_cards (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        timesheet_id INT NOT NULL,
-        user_id VARCHAR(128) NOT NULL,
-        entry_date DATE NOT NULL,
-        task VARCHAR(255),
-        hours_worked DECIMAL(10, 2) DEFAULT 0.00,
-        description TEXT,
-        short_description VARCHAR(255),
-        start_time VARCHAR(20),
-        end_time VARCHAR(20),
-        deduct DECIMAL(10, 2) DEFAULT 0.00,
-        work_type VARCHAR(50),
-        billable VARCHAR(50),
-        status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
-        elapsed_seconds INT DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_timesheet_id (timesheet_id),
-        INDEX idx_user_date (user_id, entry_date)
-      ) ENGINE=InnoDB
-    `);
-    console.log('[MySQL] Timesheet tables initialized');
-  } catch (e: any) {
-    console.error('[MySQL] Failed to initialize timesheet tables:', e.message);
+  // Auto-create timesheet tables if they don't exist for MySQL only.
+  if (!useSQLite) {
+    try {
+      await execute(`
+        CREATE TABLE IF NOT EXISTS timesheets (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(128) NOT NULL,
+          week_start DATE NOT NULL,
+          week_end DATE NOT NULL,
+          status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
+          total_hours DECIMAL(10, 2) DEFAULT 0.00,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          submitted_at TIMESTAMP NULL,
+          INDEX idx_user_week (user_id, week_start),
+          INDEX idx_status (status)
+        ) ENGINE=InnoDB
+      `);
+      await execute(`
+        CREATE TABLE IF NOT EXISTS time_cards (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          timesheet_id INT NOT NULL,
+          user_id VARCHAR(128) NOT NULL,
+          entry_date DATE NOT NULL,
+          task VARCHAR(255),
+          hours_worked DECIMAL(10, 2) DEFAULT 0.00,
+          description TEXT,
+          short_description VARCHAR(255),
+          start_time VARCHAR(20),
+          end_time VARCHAR(20),
+          deduct DECIMAL(10, 2) DEFAULT 0.00,
+          work_type VARCHAR(50),
+          billable VARCHAR(50),
+          status ENUM('Draft', 'Submitted', 'Approved', 'Rejected') DEFAULT 'Draft',
+          elapsed_seconds INT DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_timesheet_id (timesheet_id),
+          INDEX idx_user_date (user_id, entry_date)
+        ) ENGINE=InnoDB
+      `);
+      console.log('[MySQL] Timesheet tables initialized');
+    } catch (e: any) {
+      console.error('[MySQL] Failed to initialize timesheet tables:', e.message);
+    }
+  } else {
+    console.log('[SQLite] Using SQLite timesheet schema');
   }
 
   // API Routes

@@ -69,11 +69,11 @@ export function Login() {
 
       localStorage.setItem("demo_user", JSON.stringify(demoProfile));
 
-      try {
-        await setDoc(doc(db, "users", uid), { ...demoProfile, createdAt: serverTimestamp() });
-      } catch (_) { /* offline — localStorage session still works */ }
+      void setDoc(doc(db, "users", uid), { ...demoProfile, createdAt: serverTimestamp() }).catch(() => {
+        /* offline — localStorage session still works */
+      });
 
-      window.location.href = "/";
+      navigate("/", { replace: true });
     } catch (err: any) {
       setError("Demo login failed: " + err.message);
       setDemoLoading(null);
@@ -124,7 +124,7 @@ export function Login() {
         phone: userData.phone || ""
       }));
 
-      window.location.href = "/";
+      navigate("/", { replace: true });
     } catch (err: any) {
       console.error("Login error:", err);
       setError("Login failed: " + (err.message || "Please try again."));
