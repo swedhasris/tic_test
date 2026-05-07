@@ -1,110 +1,83 @@
-<?php $d = $data ?? []; ?>
+<?php $t = $ticket ?? []; ?>
 
 <div class="mb-6">
     <div class="flex items-center gap-2 text-sm text-gray-500 mb-2">
         <a href="/php-app/tickets" class="hover:text-brand">Incidents</a>
         <i class="fas fa-chevron-right text-xs"></i>
-        <span class="text-gray-800 font-medium">Create New</span>
+        <a href="/php-app/tickets/detail?id=<?= $t['id'] ?>" class="hover:text-brand font-mono"><?= htmlspecialchars($t['ticket_number'] ?? '', ENT_QUOTES, 'UTF-8') ?></a>
+        <i class="fas fa-chevron-right text-xs"></i>
+        <span class="text-gray-800 font-medium">Edit</span>
     </div>
-    <h1 class="text-2xl font-bold text-gray-900">Create New Incident</h1>
-    <p class="text-gray-500 text-sm mt-1">Fill in the details below to report a new issue.</p>
+    <h1 class="text-2xl font-bold text-gray-900">Edit Incident</h1>
 </div>
 
-<form action="/php-app/tickets/create" method="POST" enctype="multipart/form-data" class="max-w-4xl">
+<form action="/php-app/tickets/edit?id=<?= $t['id'] ?>" method="POST" class="max-w-4xl">
     <?= \Core\CSRF::field() ?>
+    <input type="hidden" name="id" value="<?= $t['id'] ?>">
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-        <!-- Main form -->
         <div class="lg:col-span-2 space-y-5">
-
-            <!-- Basic info -->
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <i class="fas fa-info-circle text-brand"></i> Incident Details
-                </h3>
-
+                <h3 class="font-semibold text-gray-800 mb-4">Incident Details</h3>
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                            Short Description / Title <span class="text-red-500">*</span>
-                        </label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Title <span class="text-red-500">*</span></label>
                         <input type="text" name="title" required
-                               value="<?= htmlspecialchars($d['title'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                               placeholder="e.g., Cannot access email server"
+                               value="<?= htmlspecialchars($t['title'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                                class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand">
                     </div>
-
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                                Caller <span class="text-red-500">*</span>
-                            </label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Caller <span class="text-red-500">*</span></label>
                             <input type="text" name="caller" required
-                                   value="<?= htmlspecialchars($d['caller'] ?? ($_SESSION['user']['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                                   value="<?= htmlspecialchars($t['caller'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Channel</label>
-                            <select name="channel" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
-                                <?php foreach (['Self-service','Phone','Email','Walk-in','Other'] as $ch): ?>
-                                <option value="<?= $ch ?>" <?= ($d['channel'] ?? 'Self-service') === $ch ? 'selected' : '' ?>><?= $ch ?></option>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+                            <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
+                                <?php foreach (['New','In Progress','On Hold','Resolved','Closed','Canceled','Pending Approval'] as $s): ?>
+                                <option value="<?= $s ?>" <?= ($t['status'] ?? '') === $s ? 'selected' : '' ?>><?= $s ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                     </div>
-
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
                             <select name="category" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
                                 <option value="">-- Select --</option>
                                 <?php foreach (['Software','Hardware','Network','Database','Security','Access','Email','Printing','Other'] as $c): ?>
-                                <option value="<?= $c ?>" <?= ($d['category'] ?? '') === $c ? 'selected' : '' ?>><?= $c ?></option>
+                                <option value="<?= $c ?>" <?= ($t['category'] ?? '') === $c ? 'selected' : '' ?>><?= $c ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1.5">Subcategory</label>
                             <input type="text" name="subcategory"
-                                   value="<?= htmlspecialchars($d['subcategory'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                                   placeholder="Optional"
+                                   value="<?= htmlspecialchars($t['subcategory'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand">
                         </div>
                     </div>
-
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Detailed Description</label>
-                        <textarea name="description" rows="5"
-                                  placeholder="Provide as much detail as possible — steps to reproduce, error messages, affected users…"
-                                  class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand resize-none"><?= htmlspecialchars($d['description'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Attachment</label>
-                        <input type="file" name="attachment"
-                               accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
-                               class="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-brand/10 file:text-brand hover:file:bg-brand/20 cursor-pointer">
-                        <p class="text-xs text-gray-400 mt-1">Max 10 MB. Allowed: jpg, png, pdf, doc, xls, txt, zip</p>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
+                        <textarea name="description" rows="6"
+                                  class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand resize-none"><?= htmlspecialchars($t['description'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Sidebar -->
         <div class="space-y-5">
-
-            <!-- Priority & Impact -->
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <i class="fas fa-exclamation-circle text-brand"></i> Classification
-                </h3>
+                <h3 class="font-semibold text-gray-800 mb-4">Classification</h3>
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
                         <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
                             <?php foreach (['1 - Critical','2 - High','3 - Moderate','4 - Low'] as $p): ?>
-                            <option value="<?= $p ?>" <?= ($d['priority'] ?? '4 - Low') === $p ? 'selected' : '' ?>><?= $p ?></option>
+                            <option value="<?= $p ?>" <?= ($t['priority'] ?? '') === $p ? 'selected' : '' ?>><?= $p ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -112,7 +85,7 @@
                         <label class="block text-sm font-medium text-gray-700 mb-1.5">Impact</label>
                         <select name="impact" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
                             <?php foreach (['1 - High','2 - Medium','3 - Low'] as $i): ?>
-                            <option value="<?= $i ?>" <?= ($d['impact'] ?? '3 - Low') === $i ? 'selected' : '' ?>><?= $i ?></option>
+                            <option value="<?= $i ?>" <?= ($t['impact'] ?? '') === $i ? 'selected' : '' ?>><?= $i ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -120,24 +93,20 @@
                         <label class="block text-sm font-medium text-gray-700 mb-1.5">Urgency</label>
                         <select name="urgency" class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand bg-white">
                             <?php foreach (['1 - High','2 - Medium','3 - Low'] as $u): ?>
-                            <option value="<?= $u ?>" <?= ($d['urgency'] ?? '3 - Low') === $u ? 'selected' : '' ?>><?= $u ?></option>
+                            <option value="<?= $u ?>" <?= ($t['urgency'] ?? '') === $u ? 'selected' : '' ?>><?= $u ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                 </div>
             </div>
 
-            <!-- Assignment -->
             <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <i class="fas fa-user-cog text-brand"></i> Assignment
-                </h3>
+                <h3 class="font-semibold text-gray-800 mb-4">Assignment</h3>
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1.5">Assignment Group</label>
                         <input type="text" name="assignment_group"
-                               value="<?= htmlspecialchars($d['assignment_group'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                               placeholder="e.g., IT Support"
+                               value="<?= htmlspecialchars($t['assignment_group'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                                class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand">
                     </div>
                     <div>
@@ -146,9 +115,8 @@
                             <option value="">-- Unassigned --</option>
                             <?php foreach ($agents ?? [] as $agent): ?>
                             <option value="<?= htmlspecialchars($agent['uid'], ENT_QUOTES, 'UTF-8') ?>"
-                                    <?= ($d['assigned_to'] ?? '') === $agent['uid'] ? 'selected' : '' ?>>
+                                    <?= ($t['assigned_to'] ?? '') === $agent['uid'] ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($agent['name'], ENT_QUOTES, 'UTF-8') ?>
-                                <?= $agent['department'] ? '(' . htmlspecialchars($agent['department'], ENT_QUOTES, 'UTF-8') . ')' : '' ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -156,13 +124,11 @@
                 </div>
             </div>
 
-            <!-- Actions -->
             <div class="flex flex-col gap-2">
-                <button type="submit"
-                        class="w-full bg-brand hover:bg-green-600 text-white font-semibold py-2.5 rounded-lg transition-all shadow-sm hover:shadow-md">
-                    <i class="fas fa-plus mr-2"></i> Create Incident
+                <button type="submit" class="w-full bg-brand hover:bg-green-600 text-white font-semibold py-2.5 rounded-lg transition">
+                    <i class="fas fa-save mr-2"></i> Save Changes
                 </button>
-                <a href="/php-app/tickets"
+                <a href="/php-app/tickets/detail?id=<?= $t['id'] ?>"
                    class="w-full text-center border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-lg transition text-sm">
                     Cancel
                 </a>

@@ -1,0 +1,172 @@
+/* ============================================================
+   Connect IT — Application Styles
+   Primary: #22c55e (Tailwind green-500)
+   Sidebar: #0f172a (Tailwind slate-900)
+   ============================================================ */
+
+:root {
+    --brand:        #22c55e;
+    --brand-dark:   #16a34a;
+    --brand-light:  #bbf7d0;
+    --sidebar-bg:   #0f172a;
+    --sidebar-text: #94a3b8;
+}
+
+/* ── Base ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar       { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Sidebar ──────────────────────────────────────────────── */
+#sidebar {
+    background: var(--sidebar-bg);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+/* ── Utility: line clamp ──────────────────────────────────── */
+.line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+}
+.line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* ── Form focus ring ──────────────────────────────────────── */
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.btn-brand {
+    background-color: var(--brand);
+    color: #fff;
+    font-weight: 600;
+    border-radius: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    transition: background-color 0.15s, box-shadow 0.15s;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.btn-brand:hover {
+    background-color: var(--brand-dark);
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.25);
+}
+
+/* ── Priority badges ──────────────────────────────────────── */
+.badge-critical { background: #fee2e2; color: #b91c1c; }
+.badge-high     { background: #ffedd5; color: #c2410c; }
+.badge-moderate { background: #fef9c3; color: #a16207; }
+.badge-low      { background: #f3f4f6; color: #4b5563; }
+
+/* ── Status badges ────────────────────────────────────────── */
+.badge-new       { background: #dbeafe; color: #1d4ed8; }
+.badge-progress  { background: #ede9fe; color: #6d28d9; }
+.badge-hold      { background: #fef9c3; color: #a16207; }
+.badge-resolved  { background: #dcfce7; color: #15803d; }
+.badge-closed    { background: #f3f4f6; color: #4b5563; }
+.badge-canceled  { background: #fee2e2; color: #b91c1c; }
+
+/* ── SLA progress bar ─────────────────────────────────────── */
+.sla-bar {
+    height: 6px;
+    border-radius: 9999px;
+    background: #e5e7eb;
+    overflow: hidden;
+}
+.sla-bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.4s ease;
+}
+.sla-ok      { background: var(--brand); }
+.sla-warning { background: #f59e0b; }
+.sla-breach  { background: #ef4444; }
+
+/* ── Card ─────────────────────────────────────────────────── */
+.card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* ── Table ────────────────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.data-table th {
+    padding: 0.75rem 1.25rem;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6b7280;
+    background: #f9fafb;
+    border-bottom: 1px solid #f3f4f6;
+}
+.data-table td {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid #f9fafb;
+    color: #374151;
+}
+.data-table tr:hover td { background: #f9fafb; }
+
+/* ── Notification dropdown ────────────────────────────────── */
+#notifDropdown, #userMenu {
+    animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Chatbot panel ────────────────────────────────────────── */
+#chatbotPanel {
+    display: flex;
+    flex-direction: column;
+}
+#chatbotPanel.hidden { display: none; }
+
+/* ── Responsive sidebar overlay ──────────────────────────── */
+@media (max-width: 1023px) {
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+    }
+    #sidebar.open {
+        transform: translateX(0);
+    }
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+@media print {
+    #sidebar, #chatbotBubble, #chatbotPanel, header { display: none !important; }
+    main { padding: 0 !important; }
+}

@@ -21,8 +21,8 @@ class Application {
         $this->loadEnv();
     }
 
-    public function run() {
-        echo $this->router->resolve();
+    public function run(): string {
+        return (string) $this->router->resolve();
     }
 
     private function loadEnv() {
